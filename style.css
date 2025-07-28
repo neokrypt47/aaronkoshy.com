@@ -9,9 +9,6 @@ html, body {
   width: 100vw;
   height: 100vh;
   display: flex;
-  position: absolute;
-  top: 0;
-  left: 0;
   justify-content: center;
   align-items: center;
   font-size: 96px;
@@ -72,13 +69,15 @@ html, body {
 
 
 .gradient-bg {
-  width: 100vw;
-  height: 100vh;
-  position: relative;
-  overflow: hidden;
-  background: linear-gradient(40deg, var(--color-bg1), var(--color-bg2));
+  position: fixed;
   top: 0;
   left: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(40deg, var(--color-bg1), var(--color-bg2));
 
   svg {
     position: fixed;
