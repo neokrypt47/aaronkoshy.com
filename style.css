@@ -187,3 +187,13 @@ html, body {
     opacity: 0.7;
   }
 }
+
+.content {
+  padding: 0 2rem;
+  font-size: 48px;
+  color: white;
+}
+
+.content section {
+  margin: 4rem 0;
+}
