@@ -9,6 +9,7 @@ html, body {
   width: 100vw;
   height: 100vh;
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
   font-size: 96px;
@@ -16,6 +17,18 @@ html, body {
   opacity: 0.8;
   user-select: none;
   text-shadow: 1px 1px rgba(0,0,0,0.1);
+}
+
+.placeholder {
+  font-size: 32px;
+}
+
+.scroll-content {
+  color: white;
+  font-size: 24px;
+  width: 80vw;
+  margin: 50px auto;
+  line-height: 1.4;
 }
 
 :root {
