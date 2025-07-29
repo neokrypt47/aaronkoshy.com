@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     const interBubble = document.querySelector('.interactive');
+    const gradients = document.querySelector('.gradients-container');
     let curX = 0;
     let curY = 0;
     let tgX = 0;
@@ -17,6 +18,12 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('mousemove', (event) => {
         tgX = event.clientX;
         tgY = event.clientY;
+    });
+
+    window.addEventListener('scroll', () => {
+        if (!gradients) return;
+        const offset = window.scrollY * 0.1;
+        gradients.style.transform = `translateY(${offset}px)`;
     });
 
     move();

@@ -12,11 +12,18 @@ describe('interactive movement', () => {
   });
 
   test('mousemove updates transform', () => {
-    const div = document.createElement('div');
-    div.className = 'interactive';
-    document.body.appendChild(div);
+    const inter = document.createElement('div');
+    inter.className = 'interactive';
+    document.body.appendChild(inter);
+    const grad = document.createElement('div');
+    grad.className = 'gradients-container';
+    document.body.appendChild(grad);
 
-    jest.spyOn(document, 'querySelector').mockReturnValue(div);
+    jest.spyOn(document, 'querySelector').mockImplementation(sel => {
+      if (sel === '.interactive') return inter;
+      if (sel === '.gradients-container') return grad;
+      return null;
+    });
 
     // Load script.js
     require('./script.js');
@@ -30,6 +37,29 @@ describe('interactive movement', () => {
     // run timers to process requestAnimationFrame
     jest.advanceTimersByTime(50);
 
-    expect(div.style.transform).not.toBe('');
+    expect(inter.style.transform).not.toBe('');
+  });
+
+  test('scroll updates parallax transform', () => {
+    const inter = document.createElement('div');
+    inter.className = 'interactive';
+    document.body.appendChild(inter);
+    const grad = document.createElement('div');
+    grad.className = 'gradients-container';
+    document.body.appendChild(grad);
+
+    jest.spyOn(document, 'querySelector').mockImplementation(sel => {
+      if (sel === '.interactive') return inter;
+      if (sel === '.gradients-container') return grad;
+      return null;
+    });
+
+    require('./script.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+
+    Object.defineProperty(window, 'scrollY', { value: 200, writable: true });
+    window.dispatchEvent(new Event('scroll'));
+
+    expect(grad.style.transform).toContain('translateY');
   });
 });
