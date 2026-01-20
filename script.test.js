@@ -60,6 +60,6 @@ describe('interactive movement', () => {
     Object.defineProperty(window, 'scrollY', { value: 200, writable: true });
     window.dispatchEvent(new Event('scroll'));
 
-    expect(grad.style.transform).toContain('translateY');
+    expect(grad.style.transform).toContain('translate3d');
   });
 });
