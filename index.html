@@ -3,52 +3,144 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="Aaron Koshy - Personal Website">
+<meta name="description" content="Aaron Koshy — Software Engineer">
 <title>Aaron Koshy</title>
-<link rel="stylesheet" href="style.css" type="text/css">
+<link rel="stylesheet" href="style.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Dongle&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
 </head>
 <body>
-<main>
-<header class="text-container">
-  <h1>Aaron Koshy</h1>
-  <p class="placeholder">Placeholder content coming soon...</p>
-</header>
-<section class="scroll-content">
-  <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec vel sapien non nunc maximus tempor. Aliquam erat volutpat.</p>
-  <p>Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas. Curabitur a dolor non sapien luctus imperdiet.</p>
-  <p>Sed gravida, tortor in scelerisque interdum, massa tortor fermentum massa, et gravida turpis orci eu leo. Integer et ipsum nec arcu facilisis varius.</p>
-  <p>Quisque sagittis quam sed neque tincidunt, eget volutpat erat dictum. Aenean a lorem sed nisl pulvinar fermentum.</p>
-  <p>Nunc at ante ut purus ornare porta. Nam vitae massa in purus viverra consequat quis nec velit.</p>
-  <p>Integer id risus nec libero dignissim pharetra. Suspendisse in faucibus magna.</p>
-  <p>Aliquam convallis urna at metus elementum, vitae facilisis orci ullamcorper. Cras auctor massa nec libero maximus dignissim.</p>
-  <p>Vivamus egestas est vitae sapien faucibus, id consectetur purus scelerisque. Sed convallis orci non urna scelerisque, quis iaculis ex commodo.</p>
-  <p>Fusce feugiat, nisl at vehicula vulputate, lorem erat euismod felis, id gravida augue sapien nec urna. In nec velit non diam dictum iaculis.</p>
-  <p>Nullam laoreet libero ut justo fermentum, non faucibus urna pharetra. Vivamus vel ligula sed magna volutpat placerat.</p>
-</section>
-</main>
+
+<!-- Cursor glow -->
+<div id="cursor-glow"></div>
+
+<!-- Noise overlay -->
+<div class="noise"></div>
+
+<!-- Animated gradient background -->
 <div class="gradient-bg">
-  <svg xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <filter id="goo">
-        <feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur" />
-        <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -8" result="goo" />
-        <feBlend in="SourceGraphic" in2="goo" />
-      </filter>
-    </defs>
-  </svg>
+  <svg xmlns="http://www.w3.org/2000/svg"><defs><filter id="goo"><feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur"/><feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -8" result="goo"/><feBlend in="SourceGraphic" in2="goo"/></filter></defs></svg>
   <div class="gradients-container">
-    <div class="g1"></div>
-    <div class="g2"></div>
-    <div class="g3"></div>
-    <div class="g4"></div>
-    <div class="g5"></div>
+    <div class="g1"></div><div class="g2"></div><div class="g3"></div>
+    <div class="g4"></div><div class="g5"></div>
     <div class="interactive"></div>
   </div>
 </div>
-<script src="script.js" defer></script>
 
+<!-- Nav -->
+<nav class="navbar">
+  <a href="#home" class="nav-logo">AK</a>
+  <ul class="nav-menu">
+    <li><a href="#about" class="nav-link">About</a></li>
+    <li><a href="#projects" class="nav-link">Projects</a></li>
+    <li><a href="#contact" class="nav-link">Contact</a></li>
+  </ul>
+  <button class="nav-toggle" aria-label="menu">
+    <span></span><span></span><span></span>
+  </button>
+</nav>
+
+<!-- Hero -->
+<section id="home" class="hero">
+  <div class="hero-content">
+    <div class="hero-label reveal">Software Engineer</div>
+    <h1 class="hero-name reveal">
+      <span class="line">Aaron</span>
+      <span class="line">Koshy</span>
+    </h1>
+    <p class="hero-sub reveal">I build things for the web — data dashboards,<br>analytics tools, and whatever catches my curiosity.</p>
+    <div class="hero-actions reveal">
+      <a href="#projects" class="pill-btn">View Projects</a>
+      <a href="#contact" class="pill-btn ghost">Say Hello</a>
+    </div>
+  </div>
+
+  <!-- Floating orbs -->
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+
+  <div class="scroll-hint">
+    <div class="scroll-dot"></div>
+  </div>
+</section>
+
+<!-- About -->
+<section id="about" class="about-section">
+  <div class="about-inner">
+    <div class="about-left reveal">
+      <span class="section-tag">About me</span>
+      <h2>Building things<br><em>that actually work</em></h2>
+    </div>
+    <div class="about-right">
+      <p class="reveal">I'm a software engineer who cares about the details. I like turning raw data into interfaces people actually want to use — whether that's financial dashboards, sports analytics, or infrastructure tooling.</p>
+      <p class="reveal">I run my own server stack — Docker, Traefik, Let's Encrypt — and a growing collection of side projects I built because I wanted them to exist.</p>
+      <div class="chips reveal">
+        <span>Python</span><span>JavaScript</span><span>Docker</span><span>FastAPI</span><span>Data viz</span><span>Self-hosting</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Projects -->
+<section id="projects" class="projects-section">
+  <div class="projects-inner">
+    <div class="projects-header reveal">
+      <span class="section-tag">Projects</span>
+      <h2>Things I've built</h2>
+    </div>
+
+    <div class="projects-grid">
+
+      <a href="https://football.aaronkoshy.com" target="_blank" class="project-card reveal" data-index="01">
+        <div class="card-screen">
+          <img src="/screenshots/football.png" alt="Football Stats" loading="lazy">
+          <div class="card-screen-shine"></div>
+        </div>
+        <div class="card-body">
+          <div class="card-num">01</div>
+          <h3>Football Stats</h3>
+          <p>Advanced soccer analytics — xG, shot maps, and league tables for the Premier League and La Liga, scraped live from Understat.</p>
+          <div class="card-tags"><span>Data</span><span>Sports</span><span>Scraping</span></div>
+          <div class="card-link">football.aaronkoshy.com ↗</div>
+        </div>
+      </a>
+
+      <a href="https://finance.aaronkoshy.com" target="_blank" class="project-card reveal" data-index="02">
+        <div class="card-screen">
+          <img src="/screenshots/finance.png" alt="MERIDIAN Finance" loading="lazy">
+          <div class="card-screen-shine"></div>
+        </div>
+        <div class="card-body">
+          <div class="card-num">02</div>
+          <h3>MERIDIAN</h3>
+          <p>A live financial terminal — stock quotes, indices, crypto, market movers, and sentiment. Dark, dense, always on.</p>
+          <div class="card-tags"><span>Finance</span><span>Real-time</span><span>Dashboard</span></div>
+          <div class="card-link">finance.aaronkoshy.com ↗</div>
+        </div>
+      </a>
+
+    </div>
+  </div>
+</section>
+
+<!-- Contact -->
+<section id="contact" class="contact-section">
+  <div class="contact-inner reveal">
+    <span class="section-tag">Contact</span>
+    <h2>Let's talk</h2>
+    <p>Got an interesting project or just want to chat — my inbox is open.</p>
+    <a href="mailto:aaronkoshy2@gmail.com" class="email-link">aaronkoshy2@gmail.com</a>
+    <div class="contact-socials">
+      <a href="https://github.com/aaron47" target="_blank">GitHub ↗</a>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <span>© <span id="yr"></span> Aaron Koshy</span>
+</footer>
+
+<script src="script.js" defer></script>
 </body>
 </html>
