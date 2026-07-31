@@ -3,26 +3,55 @@ document.addEventListener('DOMContentLoaded', () => {
   const yr = document.getElementById('yr');
   if (yr) yr.textContent = new Date().getFullYear();
 
-  // ── Custom cursor glow ──
+  // ── Custom cursor glow + dot/ring ──
   const glow = document.getElementById('cursor-glow');
+  const cursorDot = document.getElementById('cursor-dot');
+  const cursorRing = document.getElementById('cursor-ring');
   let glowX = 0, glowY = 0, targetX = 0, targetY = 0;
+  let ringX = 0, ringY = 0;
   let glowRaf;
 
   document.addEventListener('mousemove', e => {
     targetX = e.clientX;
     targetY = e.clientY;
+    if (cursorDot) cursorDot.style.transform = `translate(${targetX}px, ${targetY}px) translate(-50%, -50%)`;
   }, { passive: true });
 
   function animateGlow() {
     glowX += (targetX - glowX) * 0.1;
     glowY += (targetY - glowY) * 0.1;
     if (glow) glow.style.transform = `translate(${glowX - 170}px, ${glowY - 170}px)`;
+
+    ringX += (targetX - ringX) * 0.18;
+    ringY += (targetY - ringY) * 0.18;
+    if (cursorRing) cursorRing.style.transform = `translate(${ringX}px, ${ringY}px) translate(-50%, -50%)`;
+
     glowRaf = requestAnimationFrame(animateGlow);
   }
   animateGlow();
 
-  document.addEventListener('mouseleave', () => { if (glow) glow.style.opacity = '0'; });
-  document.addEventListener('mouseenter', () => { if (glow) glow.style.opacity = '1'; });
+  document.addEventListener('mouseleave', () => {
+    if (glow) glow.style.opacity = '0';
+    if (cursorDot) cursorDot.style.opacity = '0';
+    if (cursorRing) cursorRing.style.opacity = '0';
+  });
+  document.addEventListener('mouseenter', () => {
+    if (glow) glow.style.opacity = '1';
+    if (cursorDot) cursorDot.style.opacity = '1';
+    if (cursorRing) cursorRing.style.opacity = '1';
+  });
+
+  // ── Cursor hover state on interactive elements ──
+  document.querySelectorAll('a, button').forEach(el => {
+    el.addEventListener('mouseenter', () => {
+      cursorRing?.classList.add('hover');
+      cursorDot?.classList.add('hover');
+    });
+    el.addEventListener('mouseleave', () => {
+      cursorRing?.classList.remove('hover');
+      cursorDot?.classList.remove('hover');
+    });
+  });
 
   // ── Nav toggle ──
   const toggle = document.querySelector('.nav-toggle');
