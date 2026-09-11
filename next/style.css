@@ -1,0 +1,89 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --white: #fff; --w80: rgba(255,255,255,.8); --w50: rgba(255,255,255,.5); --w20: rgba(255,255,255,.2); --w10: rgba(255,255,255,.1);
+  --bg: #04041a;
+  --head: 'Syne', sans-serif; --body: 'Plus Jakarta Sans', sans-serif;
+}
+html { scroll-behavior: smooth; }
+body { font-family: var(--body); color: var(--white); background: var(--bg); overflow-x: hidden; cursor: none; }
+a, button { cursor: none; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* scene + scroll length */
+#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 0; opacity: 0; transition: opacity 1.2s ease; }
+body.ready #scene { opacity: 1; }
+.scroller { height: 560vh; }
+
+/* cursor */
+#cursor-dot, #cursor-ring { position: fixed; top: 0; left: 0; border-radius: 50%; pointer-events: none; z-index: 50; opacity: 0; transition: opacity .2s; }
+#cursor-dot { width: 7px; height: 7px; background: #fff; }
+#cursor-ring { width: 34px; height: 34px; border: 1px solid var(--w50); transition: width .25s, height .25s, border-color .25s, background .25s, opacity .2s; }
+#cursor-ring.hover { width: 60px; height: 60px; border-color: #fff; background: rgba(255,255,255,.07); }
+@media (hover: none), (pointer: coarse) { body, a, button { cursor: auto; } #cursor-dot, #cursor-ring { display: none; } }
+
+/* nav */
+.nav { position: fixed; top: 0; left: 0; right: 0; z-index: 20; display: flex; justify-content: space-between; align-items: center; padding: 26px 48px; mix-blend-mode: screen; }
+.nav .logo { font-family: var(--head); font-weight: 800; font-size: 1.3rem; color: #fff; text-decoration: none; letter-spacing: -.02em; }
+.nav ul { display: flex; gap: 36px; list-style: none; }
+.nav a { color: var(--w80); text-decoration: none; font-size: .85rem; letter-spacing: .02em; transition: color .2s; }
+.nav a:hover { color: #fff; }
+
+/* overlays */
+.ov { position: fixed; z-index: 10; opacity: 0; pointer-events: none; will-change: opacity, transform; }
+.tag { display: block; font-size: .72rem; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; color: var(--w50); margin-bottom: 16px; }
+.hint { font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; color: var(--w20); margin-top: 28px; }
+
+.ov-hero { left: 48px; bottom: 64px; max-width: 560px; }
+.ov-hero p { font-size: clamp(1rem, 1.6vw, 1.15rem); font-weight: 300; line-height: 1.65; color: var(--w80); }
+
+.ov-about { right: 48px; top: 50%; transform: translateY(-50%); width: min(460px, 44vw); }
+.ov-about h2 { font-family: var(--head); font-size: clamp(30px, 3.4vw, 44px); font-weight: 800; line-height: 1.05; letter-spacing: -.02em; margin-bottom: 22px; }
+.ov-about h2 em { font-style: italic; font-weight: 700; color: var(--w50); }
+.ov-about p { font-size: .95rem; font-weight: 300; line-height: 1.75; color: var(--w80); margin-bottom: 14px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.chips span { font-size: .74rem; padding: 6px 13px; border-radius: 100px; background: var(--w10); border: 1px solid var(--w20); color: var(--w80); backdrop-filter: blur(8px); }
+
+.ov-work { left: 48px; bottom: 64px; width: min(440px, 42vw); }
+#work-detail { transition: opacity .14s, transform .14s; }
+#work-detail.swap { opacity: 0; transform: translateY(6px); }
+#work-detail .num { font-size: .7rem; letter-spacing: .15em; color: var(--w20); margin-bottom: 10px; }
+#work-detail h3 { font-family: var(--head); font-size: clamp(1.7rem, 2.8vw, 2.4rem); font-weight: 800; letter-spacing: -.02em; margin-bottom: 12px; }
+#work-detail p { font-size: .92rem; font-weight: 300; line-height: 1.7; color: var(--w80); margin-bottom: 16px; }
+#work-detail .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
+#work-detail .tags span { font-size: .66rem; letter-spacing: .08em; text-transform: uppercase; padding: 3px 10px; border-radius: 100px; background: var(--w10); border: 1px solid var(--w10); color: var(--w50); }
+#work-detail a { color: #fff; text-decoration: none; font-size: .85rem; border-bottom: 1px solid var(--w20); padding-bottom: 3px; transition: border-color .2s; }
+#work-detail a:hover { border-color: #fff; }
+.dots { display: flex; gap: 10px; margin-top: 24px; }
+.dots button { width: 26px; height: 4px; border-radius: 4px; border: 0; padding: 0; background: var(--w20); transition: background .25s, width .25s; }
+.dots button[aria-selected="true"] { background: #fff; width: 42px; }
+
+.ov-contact { left: 50%; bottom: 72px; transform: translateX(-50%); text-align: center; width: min(560px, 90vw); }
+.ov-contact p { font-size: .98rem; font-weight: 300; color: var(--w80); margin-bottom: 26px; }
+.ov-contact .email { display: inline-block; color: #fff; text-decoration: none; font-size: clamp(1rem, 2.2vw, 1.3rem); padding-bottom: 6px; border-bottom: 1px solid var(--w20); margin-bottom: 26px; transition: border-color .2s; }
+.ov-contact .email:hover { border-color: #fff; }
+.socials a { color: var(--w50); text-decoration: none; font-size: .85rem; letter-spacing: .04em; }
+.socials a:hover { color: #fff; }
+.foot { margin-top: 40px; font-size: .7rem; letter-spacing: .08em; color: var(--w20); }
+
+/* project data list: hidden when the scene runs, visible as the no-WebGL fallback */
+.fallback-list { display: none; }
+body.no-gl #scene, body.no-gl .scroller { display: none; }
+body.no-gl .ov { position: static; opacity: 1 !important; transform: none !important; pointer-events: auto !important; padding: 80px 48px 0; max-width: 720px; width: auto; }
+body.no-gl .ov-work { display: none; }
+body.no-gl .fallback-list { display: block; padding: 40px 48px 80px; list-style: none; }
+body.no-gl .fallback-list li { margin-bottom: 12px; }
+body.no-gl .fallback-list a { color: #fff; font-family: var(--head); font-size: 1.4rem; }
+body.no-gl { cursor: auto; }
+
+#dbg { position: fixed; left: 8px; top: 72px; z-index: 99; background: rgba(0,0,0,.8); color: #9f9; font: 11px/1.45 ui-monospace, monospace; padding: 8px 10px; border-radius: 6px; white-space: pre-wrap; pointer-events: none; max-width: 90vw; }
+
+@media (max-width: 900px) {
+  .nav { padding: 20px 22px; }
+  .nav ul { gap: 20px; }
+  .ov-hero, .ov-work { left: 22px; right: 22px; bottom: 40px; width: auto; max-width: none; }
+  .ov-about { left: 22px; right: 22px; top: auto; bottom: 40px; transform: none; width: auto; }
+  .ov-about p:nth-of-type(2) { display: none; }
+  .ov-contact { bottom: 48px; }
+  .hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }

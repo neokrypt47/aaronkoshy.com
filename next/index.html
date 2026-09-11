@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="description" content="Aaron Koshy — Software Engineer">
+<title>Aaron Koshy</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2350008c'/><text x='50' y='68' font-size='50' font-family='Arial,sans-serif' font-weight='700' fill='white' text-anchor='middle'>AK</text></svg>">
+<link rel="stylesheet" href="style.css">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+
+<canvas id="scene" aria-hidden="true"></canvas>
+<div class="scroller" aria-hidden="true"></div>
+
+<div id="cursor-dot"></div>
+<div id="cursor-ring"></div>
+
+<nav class="nav">
+  <a href="#" class="logo" data-goto="0">AK</a>
+  <ul>
+    <li><a href="#about" data-goto="1">About</a></li>
+    <li><a href="#work" data-goto="2">Work</a></li>
+    <li><a href="#contact" data-goto="3">Contact</a></li>
+  </ul>
+</nav>
+
+<h1 class="sr-only">Aaron Koshy — Software Engineer</h1>
+
+<!-- Overlays: data-range = fade-in start, fade-in end, fade-out start, fade-out end (scroll progress 0..1) -->
+<section class="ov ov-hero" data-range="-1,0,0.06,0.16" id="home">
+  <span class="tag">Software Engineer</span>
+  <p>I build things for the web — data dashboards, analytics tools,<br>and whatever catches my curiosity.</p>
+  <div class="hint">Scroll to dive in · click the liquid</div>
+</section>
+
+<section class="ov ov-about" data-range="0.24,0.31,0.40,0.46" id="about">
+  <span class="tag">About me</span>
+  <h2>Building things<br><em>that actually work</em></h2>
+  <p>I'm a software engineer who cares about the details. I like turning raw data into interfaces people actually want to use — financial dashboards, sports analytics, infrastructure tooling.</p>
+  <p>I run my own server stack and a growing collection of side projects I built because I wanted them to exist.</p>
+  <div class="chips"><span>Python</span><span>JavaScript</span><span>Docker</span><span>FastAPI</span><span>WebGL</span><span>Self-hosting</span></div>
+</section>
+
+<section class="ov ov-work" data-range="0.56,0.63,0.72,0.78" id="work">
+  <span class="tag">Work</span>
+  <div id="work-detail" aria-live="polite"></div>
+  <div class="hint">Hover a panel · ← → to browse</div>
+</section>
+
+<section class="ov ov-contact" data-range="0.88,0.95,2,3" id="contact">
+  <span class="tag">Contact</span>
+  <p>Got an interesting project or just want to chat — my inbox is open.</p>
+  <a href="mailto:aaronkoshy2@gmail.com" class="email">aaronkoshy2@gmail.com</a>
+  <div class="socials"><a href="https://github.com/neokrypt47" target="_blank" rel="noopener">GitHub ↗</a></div>
+  <div class="foot">© <span id="yr"></span> Aaron Koshy</div>
+</section>
+
+<!-- Project data (also the no-WebGL fallback list) -->
+<ul id="work-list" class="fallback-list">
+  <li data-title="Football Stats" data-img="/screenshots/football.png" data-href="/football/" data-link="aaronkoshy.com/football ↗" data-tags="Data,Sports,Scraping"
+      data-blurb="Advanced soccer analytics — xG, shot maps, and league tables for the Premier League and La Liga, scraped live from Understat.">
+    <a href="/football/">Football Stats</a></li>
+  <li data-title="MERIDIAN" data-img="/screenshots/finance.png" data-href="/finance/" data-link="aaronkoshy.com/finance ↗" data-tags="Finance,Real-time,Dashboard"
+      data-blurb="A live financial terminal — stock quotes, indices, crypto, market movers, and sentiment. Dark, dense, always on.">
+    <a href="/finance/">MERIDIAN</a></li>
+  <li data-title="NBA Stats" data-img="/screenshots/nba.png" data-href="/nba/" data-link="aaronkoshy.com/nba ↗" data-tags="Data,Sports,Scraping"
+      data-blurb="Advanced basketball analytics — standings, player leaderboards, shot charts, and playoff series tracking for the 2025-26 NBA season.">
+    <a href="/nba/">NBA Stats</a></li>
+  <li data-title="CITY//FPS" data-img="/screenshots/city.svg" data-href="/city/" data-link="aaronkoshy.com/city ↗" data-tags="3D,Games,Maps"
+      data-blurb="A first-person game set in real neighborhoods — pick a district of NYC, London, Paris, Tokyo or SF and play it in 3D, rebuilt from OpenStreetMap data.">
+    <a href="/city/">CITY//FPS</a></li>
+</ul>
+
+<script>document.getElementById('yr').textContent = new Date().getFullYear();</script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
