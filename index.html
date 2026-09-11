@@ -7,9 +7,19 @@
 <title>Aaron Koshy</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2350008c'/><text x='50' y='68' font-size='50' font-family='Arial,sans-serif' font-weight='700' fill='white' text-anchor='middle'>AK</text></svg>">
 <link rel="stylesheet" href="style.css">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+    "@dimforge/rapier3d-compat": "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.20.0/+esm"
+  }
+}
+</script>
 </head>
 <body>
 
@@ -21,6 +31,7 @@
 <!-- Noise overlay -->
 <div class="noise"></div>
 
+
 <!-- Animated gradient background -->
 <div class="gradient-bg">
   <svg xmlns="http://www.w3.org/2000/svg"><defs><filter id="goo"><feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur"/><feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -8" result="goo"/><feBlend in="SourceGraphic" in2="goo"/></filter></defs></svg>
@@ -30,6 +41,10 @@
     <div class="interactive"></div>
   </div>
 </div>
+
+<!-- WebGL layers: fluid background + shared three.js canvas (hero letters, project deck) -->
+<canvas id="fluid" aria-hidden="true"></canvas>
+<canvas id="gl" aria-hidden="true"></canvas>
 
 <!-- Nav -->
 <nav class="navbar">
@@ -49,8 +64,8 @@
   <div class="hero-content">
     <div class="hero-label reveal">Software Engineer</div>
     <h1 class="hero-name reveal">
-      <span class="line">Aaron</span>
-      <span class="line">Koshy</span>
+      <span class="line"><span class="ch">A</span><span class="ch">a</span><span class="ch">r</span><span class="ch">o</span><span class="ch">n</span></span>
+      <span class="line"><span class="ch">K</span><span class="ch">o</span><span class="ch">s</span><span class="ch">h</span><span class="ch">y</span></span>
     </h1>
     <p class="hero-sub reveal">I build things for the web — data dashboards,<br>analytics tools, and whatever catches my curiosity.</p>
     <div class="hero-actions reveal">
@@ -59,9 +74,6 @@
     </div>
   </div>
 
-  <!-- Floating orbs -->
-  <div class="orb orb-1"></div>
-  <div class="orb orb-2"></div>
 
   <div class="scroll-hint">
     <div class="scroll-dot"></div>
@@ -91,6 +103,11 @@
     <div class="projects-header reveal">
       <span class="section-tag">Projects</span>
       <h2>Things I've built</h2>
+    </div>
+
+    <div class="deck-wrap">
+      <div id="deck-stage" aria-hidden="true"></div>
+      <aside id="deck-detail" hidden></aside>
     </div>
 
     <div class="projects-grid">
@@ -163,7 +180,7 @@
     <p>Got an interesting project or just want to chat — my inbox is open.</p>
     <a href="mailto:aaronkoshy2@gmail.com" class="email-link">aaronkoshy2@gmail.com</a>
     <div class="contact-socials">
-      <a href="https://github.com/aaron47" target="_blank">GitHub ↗</a>
+      <a href="https://github.com/neokrypt47" target="_blank">GitHub ↗</a>
     </div>
   </div>
 </section>
@@ -173,5 +190,6 @@
 </footer>
 
 <script src="script.js" defer></script>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>
