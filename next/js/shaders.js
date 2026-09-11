@@ -116,7 +116,7 @@ vec3 shadeSolid(vec3 p, int id, vec3 rd) {
   vec3 n = nSolid(p);
   vec3 L = normalize(vec3(-0.45, 0.8, 0.6));
   float dif = 0.55 + 0.45 * max(dot(n, L), 0.0);
-  if (id == 0) return vec3(1.0, 0.95, 1.0) * 1.45 * dif;         // the name: a glowing core
+  if (id == 0) return vec3(1.0, 0.97, 1.0) * (0.92 + 0.28 * dif); // the name: just above bloom threshold, so edges stay crisp
   int i = id - 1;
   vec3 l = p - uSlab[i].xyz;
   float hov = uSlab[i].w;
@@ -134,10 +134,12 @@ vec3 shadeSolid(vec3 p, int id, vec3 rd) {
 // March inside the glass from p along rr until we exit or hit a solid.
 vec3 marchInside(vec3 p, vec3 rr) {
   float tt = 0.02; vec3 q = p + rr * tt; int sid = -1; bool exited = false;
+  float nearText = 10.0;
   for (int i = 0; i < 128; i++) {
     if (i >= uISteps) break;
     float dl = -sdLiquid(q);
     int id; float ds = sdSolid(q, id);
+    if (id == 0) nearText = min(nearText, ds);
     if (ds < 0.002) { sid = id; break; }
     if (dl < 0.002) { exited = true; break; }
     tt += max(min(dl, ds) * 0.9, 0.01);
@@ -161,6 +163,7 @@ vec3 marchInside(vec3 p, vec3 rr) {
     if (dot(r2, r2) < 0.5) r2 = r1;
     col = vec3(env(r0).r, env(r1).g, env(r2).b) * 0.9;
     if (tir) col = mix(col, vec3(0.42, 0.22, 0.70), 0.55);        // TIR reads as tinted glass, not a dark seam
+    col *= mix(0.30, 1.0, smoothstep(0.0, 0.6, nearText));       // soft dark halo hugging the letters
   }
   return col * absorb + glow;
 }

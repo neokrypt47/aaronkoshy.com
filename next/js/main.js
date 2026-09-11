@@ -4,6 +4,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { VERT, FRAG } from './shaders.js';
 import { textSDF } from './sdf.js';
 
@@ -24,10 +26,10 @@ const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t
 // ── Scene definition: four liquid clusters along -z ──
 const GAP = 24;
 const CLUSTERS = [
-  { id: 'hero',    lines: ['AARON', 'KOSHY'], texW: 11.5, texH: 5.75, canvas: [1024, 512], x: 0,    y: 1.0, core: [6.6, 3.5, 0.85] },
-  { id: 'about',   lines: ['ABOUT'],          texW: 9.5,  texH: 3.56, canvas: [1024, 384], x: -9,   y: 0.4, core: [5.6, 2.5, 0.85] },
+  { id: 'hero',    lines: ['AARON', 'KOSHY'], texW: 11.5, texH: 5.75, canvas: [1024, 512], x: 0,    y: 1.0, core: [7.4, 3.9, 0.85] },
+  { id: 'about',   lines: ['ABOUT'],          texW: 9.5,  texH: 3.56, canvas: [1024, 384], x: -9,   y: 0.4, core: [6.3, 2.8, 0.85] },
   { id: 'work',    slabs: true,                                                            x: 9,    y: 0.1, core: [8.3, 1.9, 0.6], coreZ: -1.0 },
-  { id: 'contact', lines: ['SAY', 'HELLO'],   texW: 10,   texH: 5,    canvas: [1024, 512], x: -9,   y: 0.2, core: [5.9, 3.2, 0.85] },
+  { id: 'contact', lines: ['SAY', 'HELLO'],   texW: 10,   texH: 5,    canvas: [1024, 512], x: -9,   y: 0.2, core: [6.6, 3.6, 0.85] },
 ];
 CLUSTERS.forEach((c, i) => { c.z = -i * GAP; c.center = new THREE.Vector3(c.x, c.y, c.z); c.coreHalf = new THREE.Vector3(...c.core); c.corePos = new THREE.Vector3(c.x, c.y, c.z + (c.coreZ || 0)); });
 const SLAB_X = [-5.6, -1.85, 1.85, 5.6];
@@ -132,7 +134,7 @@ function cameraFor(prog) {
 
 // ── Renderer ──
 const canvas = $('#scene');
-let renderer, composer, bloom, material, uniforms;
+let renderer, composer, bloom, fxaa, material, uniforms;
 let scale = FORCE_SCALE ?? (mobile ? 0.6 : 0.85);
 const targetScale = scale;
 
@@ -203,7 +205,7 @@ async function init() {
     uTexB: { value: CLUSTERS[1].tex }, uTextBPos: { value: new THREE.Vector3() }, uTextBSize: { value: new THREE.Vector2(1, 1) }, uTextBOn: { value: 0 }, uTextBFade: { value: 0 },
     uTextDepth: { value: 0.42 },
     uSlab: { value: SLAB_X.map(x => new THREE.Vector4(CLUSTERS[2].x + x, CLUSTERS[2].y, CLUSTERS[2].z + 0.55, 0)) }, uSlabHalf: { value: SLAB_HALF }, uSlabOn: { value: 0 }, uSlabScale: { value: 1 }, uAtlas: { value: atlas },
-    uIor: { value: 1.33 }, uAbsorb: { value: new THREE.Vector3(0.10, 0.17, 0.025) }, uDisp: { value: mobile ? 0 : 0.012 },
+    uIor: { value: 1.27 }, uAbsorb: { value: new THREE.Vector3(0.10, 0.17, 0.025) }, uDisp: { value: mobile ? 0 : 0.012 },
     uSteps: { value: mobile ? 72 : 110 }, uISteps: { value: mobile ? 40 : 64 },
   };
   material = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms, glslVersion: THREE.GLSL3, depthTest: false, depthWrite: false });
@@ -213,9 +215,11 @@ async function init() {
 
   composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, cam));
-  bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.38, 0.5, 0.9);
+  bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.25, 0.3, 0.9);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
+  fxaa = new ShaderPass(FXAAShader);
+  composer.addPass(fxaa);
   applySize();
   window.addEventListener('resize', applySize);
 
@@ -230,6 +234,7 @@ function applySize() {
   composer.setPixelRatio(scale);
   composer.setSize(innerWidth, innerHeight);
   uniforms.uRes.value.set(innerWidth * scale, innerHeight * scale);
+  if (fxaa) fxaa.material.uniforms.resolution.value.set(1 / (innerWidth * scale), 1 / (innerHeight * scale));
 }
 
 // ── Physics ──
