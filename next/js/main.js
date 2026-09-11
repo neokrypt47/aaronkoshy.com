@@ -26,10 +26,10 @@ const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t
 // ── Scene definition: four liquid clusters along -z ──
 const GAP = 24;
 const CLUSTERS = [
-  { id: 'hero',    lines: ['AARON', 'KOSHY'], texW: 11.5, texH: 5.75, canvas: [1024, 512], x: 0,    y: 1.0, core: [7.4, 3.9, 0.85] },
-  { id: 'about',   lines: ['ABOUT'],          texW: 9.5,  texH: 3.56, canvas: [1024, 384], x: -9,   y: 0.4, core: [6.3, 2.8, 0.85] },
+  { id: 'hero',    lines: ['AARON', 'KOSHY'], texW: 11.5, texH: 5.75, canvas: [2048, 1024], x: 0,    y: 1.0, core: [7.4, 3.9, 0.85] },
+  { id: 'about',   lines: ['ABOUT'],          texW: 9.5,  texH: 3.56, canvas: [2048, 768], x: -9,   y: 0.4, core: [6.3, 2.8, 0.85] },
   { id: 'work',    slabs: true,                                                            x: 9,    y: 0.1, core: [8.3, 1.9, 0.6], coreZ: -1.0 },
-  { id: 'contact', lines: ['SAY', 'HELLO'],   texW: 10,   texH: 5,    canvas: [1024, 512], x: -9,   y: 0.2, core: [6.6, 3.6, 0.85] },
+  { id: 'contact', lines: ['SAY', 'HELLO'],   texW: 10,   texH: 5,    canvas: [2048, 1024], x: -9,   y: 0.2, core: [6.6, 3.6, 0.85] },
 ];
 CLUSTERS.forEach((c, i) => { c.z = -i * GAP; c.center = new THREE.Vector3(c.x, c.y, c.z); c.coreHalf = new THREE.Vector3(...c.core); c.corePos = new THREE.Vector3(c.x, c.y, c.z + (c.coreZ || 0)); });
 const SLAB_X = [-5.6, -1.85, 1.85, 5.6];
@@ -135,7 +135,8 @@ function cameraFor(prog) {
 // ── Renderer ──
 const canvas = $('#scene');
 let renderer, composer, bloom, fxaa, material, uniforms;
-let scale = FORCE_SCALE ?? (mobile ? 0.6 : 0.85);
+const DPR = Math.min(devicePixelRatio || 1, 2);
+let scale = FORCE_SCALE ?? (mobile ? DPR * 0.55 : DPR * 0.85);   // drawing-buffer px per CSS px
 const targetScale = scale;
 
 function hasWebGL2() { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } }
@@ -215,7 +216,7 @@ async function init() {
 
   composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, cam));
-  bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.25, 0.3, 0.9);
+  bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.3, 0.3, 1.1);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
   fxaa = new ShaderPass(FXAAShader);
@@ -387,8 +388,8 @@ function frame(now) {
 
   // adaptive resolution
   if (!FORCE_SCALE && frames > 30 && frames % 30 === 0) {
-    if (frameMs > 24 && scale > 0.45) { scale = Math.max(0.45, scale * 0.85); applySize(); }
-    else if (frameMs < 11 && scale < targetScale) { scale = Math.min(targetScale, scale * 1.1); applySize(); }
+    if (frameMs > 22 && scale > 0.5) { scale = Math.max(0.5, scale * 0.85); applySize(); }
+    else if (frameMs < 10 && scale < targetScale) { scale = Math.min(targetScale, scale * 1.08); applySize(); }
   }
 
   readScroll();
@@ -408,8 +409,9 @@ function frame(now) {
   }
   // pointer parallax
   const px = pointer.inside ? (pointer.x / innerWidth - 0.5) : 0, py = pointer.inside ? (pointer.y / innerHeight - 0.5) : 0;
-  camPos.lerp(cam.pos.add(new THREE.Vector3(px * 0.9, -py * 0.5, 0)), Math.min(1, dt * 6));
-  camLook.lerp(cam.look, Math.min(1, dt * 6));
+  const ck = FORCE_P !== null ? 1 : Math.min(1, dt * 6);
+  camPos.lerp(cam.pos.add(new THREE.Vector3(px * 0.9, -py * 0.5, 0)), ck);
+  camLook.lerp(cam.look, ck);
   camPos.y += Math.sin(t * 0.5) * 0.04;
   updateCamMat();
 

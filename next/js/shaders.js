@@ -68,7 +68,7 @@ float sdText(sampler2D tex, vec3 p, vec3 pos, vec2 size, float fade) {
   vec2 q = abs(l.xy) - size * 0.5;
   v += length(max(q, 0.0));
   vec2 w = vec2(v, abs(l.z) - uTextDepth);
-  return min(max(w.x, w.y), 0.0) + length(max(w, 0.0)) - 0.05 + fade;   // fade > 0 thins the letters away
+  return min(max(w.x, w.y), 0.0) + length(max(w, 0.0)) - 0.012 + fade;  // tiny rounding only; keeps counters open
 }
 
 float sdSlab(vec3 p, vec3 c) {
@@ -93,7 +93,7 @@ vec3 nLiquid(vec3 p) {
                    k.yxy * sdLiquid(p + k.yxy * h) + k.xxx * sdLiquid(p + k.xxx * h));
 }
 vec3 nSolid(vec3 p) {
-  int id; const float h = 0.004;
+  int id; const float h = 0.008;
   return normalize(vec3(
     sdSolid(p + vec3(h, 0, 0), id) - sdSolid(p - vec3(h, 0, 0), id),
     sdSolid(p + vec3(0, h, 0), id) - sdSolid(p - vec3(0, h, 0), id),
@@ -116,7 +116,7 @@ vec3 shadeSolid(vec3 p, int id, vec3 rd) {
   vec3 n = nSolid(p);
   vec3 L = normalize(vec3(-0.45, 0.8, 0.6));
   float dif = 0.55 + 0.45 * max(dot(n, L), 0.0);
-  if (id == 0) return vec3(1.0, 0.97, 1.0) * (0.92 + 0.28 * dif); // the name: just above bloom threshold, so edges stay crisp
+  if (id == 0) return vec3(1.0, 0.97, 1.0) * (0.88 + 0.16 * dif); // the name: pure white, below bloom threshold so edges stay crisp
   int i = id - 1;
   vec3 l = p - uSlab[i].xyz;
   float hov = uSlab[i].w;
