@@ -21,6 +21,7 @@ uniform int   uNB;
 uniform vec4  uCursor;
 uniform vec3  uCoreA; uniform vec3 uCoreAHalf; uniform float uCoreAOn;
 uniform vec3  uCoreB; uniform vec3 uCoreBHalf; uniform float uCoreBOn;
+uniform vec4  uBoundA; uniform vec4 uBoundB;   // bounding spheres of the two active clusters (xyz, r)
 
 uniform sampler2D uTexA; uniform vec3 uTextAPos; uniform vec2 uTextASize; uniform float uTextAOn; uniform float uTextAFade;
 uniform sampler2D uTexB; uniform vec3 uTextBPos; uniform vec2 uTextBSize; uniform float uTextBOn; uniform float uTextBFade;
@@ -168,6 +169,16 @@ vec3 marchInside(vec3 p, vec3 rr) {
   return col * absorb + glow;
 }
 
+// Ray vs sphere; returns entry/exit distances, false on miss.
+bool raySphere(vec3 ro, vec3 rd, vec4 s, out float t0, out float t1) {
+  vec3 oc = ro - s.xyz;
+  float b = dot(oc, rd), c = dot(oc, oc) - s.w * s.w;
+  float h = b * b - c;
+  if (h < 0.0) return false;
+  h = sqrt(h); t0 = -b - h; t1 = -b + h;
+  return t1 > 0.0;
+}
+
 float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 
 void main() {
@@ -180,10 +191,19 @@ void main() {
   bg *= vig;
 
   vec3 col;
+  // Only march inside the union of the two cluster bounding spheres; everything else is background.
+  float ta0, ta1, tb0, tb1;
+  bool ha = raySphere(ro, rd, uBoundA, ta0, ta1);
+  bool hb = raySphere(ro, rd, uBoundB, tb0, tb1);
+  float tStart = 1e9, tEnd = 0.0;
+  if (ha) { tStart = min(tStart, max(ta0, 0.0)); tEnd = max(tEnd, ta1); }
+  if (hb) { tStart = min(tStart, max(tb0, 0.0)); tEnd = max(tEnd, tb1); }
   if (sdLiquid(ro) < 0.0) {
     col = marchInside(ro, rd);
+  } else if (!ha && !hb) {
+    col = bg;
   } else {
-    float t = 0.0; int hit = -2; vec3 p = ro;
+    float t = tStart; int hit = -2; vec3 p = ro;
     for (int i = 0; i < 256; i++) {
       if (i >= uSteps) break;
       p = ro + rd * t;
@@ -192,7 +212,7 @@ void main() {
       float d = min(dl, ds);
       if (d < 0.0012 * t + 0.0008) { hit = (dl <= ds) ? -1 : id; break; }
       t += d * 0.9;
-      if (t > 90.0) break;
+      if (t > tEnd) break;
     }
     if (hit == -2) {
       col = bg;

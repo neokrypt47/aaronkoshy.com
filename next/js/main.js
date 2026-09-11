@@ -202,12 +202,13 @@ async function init() {
     uCursor: { value: new THREE.Vector4(0, 0, 0, 0) },
     uCoreA: { value: new THREE.Vector3() }, uCoreAHalf: { value: new THREE.Vector3(1, 1, 1) }, uCoreAOn: { value: 0 },
     uCoreB: { value: new THREE.Vector3() }, uCoreBHalf: { value: new THREE.Vector3(1, 1, 1) }, uCoreBOn: { value: 0 },
+    uBoundA: { value: new THREE.Vector4(0, 0, 0, 0) }, uBoundB: { value: new THREE.Vector4(0, 0, 0, 0) },
     uTexA: { value: CLUSTERS[0].tex }, uTextAPos: { value: new THREE.Vector3() }, uTextASize: { value: new THREE.Vector2(1, 1) }, uTextAOn: { value: 0 }, uTextAFade: { value: 0 },
     uTexB: { value: CLUSTERS[1].tex }, uTextBPos: { value: new THREE.Vector3() }, uTextBSize: { value: new THREE.Vector2(1, 1) }, uTextBOn: { value: 0 }, uTextBFade: { value: 0 },
     uTextDepth: { value: 0.42 },
     uSlab: { value: SLAB_X.map(x => new THREE.Vector4(CLUSTERS[2].x + x, CLUSTERS[2].y, CLUSTERS[2].z + 0.55, 0)) }, uSlabHalf: { value: SLAB_HALF }, uSlabOn: { value: 0 }, uSlabScale: { value: 1 }, uAtlas: { value: atlas },
     uIor: { value: 1.27 }, uAbsorb: { value: new THREE.Vector3(0.10, 0.17, 0.025) }, uDisp: { value: mobile ? 0 : 0.012 },
-    uSteps: { value: mobile ? 72 : 110 }, uISteps: { value: mobile ? 40 : 64 },
+    uSteps: { value: mobile ? 64 : 96 }, uISteps: { value: mobile ? 36 : 56 },
   };
   material = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms, glslVersion: THREE.GLSL3, depthTest: false, depthWrite: false });
   const scene = new THREE.Scene();
@@ -387,9 +388,10 @@ function frame(now) {
   const t = tSim;
 
   // adaptive resolution
-  if (!FORCE_SCALE && frames > 30 && frames % 30 === 0) {
-    if (frameMs > 22 && scale > 0.5) { scale = Math.max(0.5, scale * 0.85); applySize(); }
-    else if (frameMs < 10 && scale < targetScale) { scale = Math.min(targetScale, scale * 1.08); applySize(); }
+  if (!FORCE_SCALE && frames > 60 && frames % 60 === 0) {
+    const floor = Math.max(0.7, DPR * 0.5);
+    if (frameMs > 34 && scale > floor) { scale = Math.max(floor, scale * 0.9); applySize(); }          // below 30 fps: soften a little
+    else if (frameMs < 20 && scale < targetScale) { scale = Math.min(targetScale, scale * 1.05); applySize(); }
   }
 
   readScroll();
@@ -446,6 +448,14 @@ function frame(now) {
   uniforms.uTextBOn.value = B.tex ? 1 : 0;
   if (B.tex) { uniforms.uTexB.value = B.tex; uniforms.uTextBPos.value.copy(B.center); uniforms.uTextBSize.value.copy(B.texSize); }
   uniforms.uSlabOn.value = active.includes(2) ? 1 : 0;
+  active.forEach((k, ai) => {
+    const c = CLUSTERS[k], pr = pres[ai];
+    const half = c.coreHalf;
+    let r = Math.hypot(half.x, half.y, half.z) * pr + 1.2;
+    if (c.slabs) r = Math.max(r, Math.hypot(SLAB_X[3] + SLAB_HALF.x, SLAB_HALF.y, 1) * Math.max(pr, 0.001) + 0.6);
+    for (const b of c.blobs) { const br = b.drip ? b.r : b.r * pr; if (br > 0.02) r = Math.max(r, b.pos.distanceTo(c.corePos) + br + 0.4); }
+    (ai === 0 ? uniforms.uBoundA : uniforms.uBoundB).value.set(c.corePos.x, c.corePos.y, c.corePos.z, r);
+  });
 
   // slab hover
   hoverCard = uniforms.uSlabOn.value && pointer.inside && pointer.type !== 'touch' ? slabHit() : -1;
