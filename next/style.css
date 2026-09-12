@@ -1,3 +1,4 @@
+@font-face { font-family: 'Syne'; font-style: normal; font-weight: 700 800; font-display: swap; src: url('fonts/Syne-800-latin.woff2') format('woff2'); }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --white: #fff; --w80: rgba(255,255,255,.8); --w50: rgba(255,255,255,.5); --w20: rgba(255,255,255,.2); --w10: rgba(255,255,255,.1);

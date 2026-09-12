@@ -37,11 +37,8 @@ function edt(grid, w, h) {
   }
 }
 
-/**
- * Rasterise `lines` centred on a w×h canvas and return a Float32Array signed distance
- * (positive outside) normalised by canvas width, so world distance = value * worldWidth.
- */
-export function textSDF(lines, { w = 1024, h = 512, font = 'Syne', weight = 800, fill = 0.86, lineHeight = 0.92, spacing = -0.03 } = {}) {
+/** Rasterise `lines` centred on a w×h canvas; returns a Uint8Array mask (1 = inside glyph). Main thread only (needs the page font). */
+export function rasterText(lines, { w = 1024, h = 512, font = 'Syne', weight = 800, fill = 0.86, lineHeight = 0.92, spacing = -0.03 } = {}) {
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
   const ctx = cv.getContext('2d', { willReadFrequently: true });
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
@@ -61,17 +58,54 @@ export function textSDF(lines, { w = 1024, h = 512, font = 'Syne', weight = 800,
   lines.forEach((line, i) => ctx.fillText(line, w / 2 + (spacing * fs) / 2, y0 + i * lh));
 
   const img = ctx.getImageData(0, 0, w, h).data;
+  const mask = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) mask[i] = img[i * 4] > 127 ? 1 : 0;
+  return { mask, w, h, aspect: w / h };
+}
+
+/** Pure: signed distance (positive outside) normalised by width, from a glyph mask. Safe to run in a worker. */
+export function edtSigned(mask, w, h) {
   const inside = new Float32Array(w * h), outside = new Float32Array(w * h);
   for (let i = 0; i < w * h; i++) {
-    const on = img[i * 4] > 127;
-    inside[i] = on ? 0 : INF;     // distance to nearest inside pixel (for outside points)
-    outside[i] = on ? INF : 0;    // distance to nearest outside pixel (for inside points)
+    inside[i] = mask[i] ? 0 : INF;     // distance to nearest inside pixel (for outside points)
+    outside[i] = mask[i] ? INF : 0;    // distance to nearest outside pixel (for inside points)
   }
   edt(inside, w, h); edt(outside, w, h);
   const sdf = new Float32Array(w * h);
   for (let i = 0; i < w * h; i++) {
-    const d = img[i * 4] > 127 ? -Math.sqrt(outside[i]) : Math.sqrt(inside[i]);
+    const d = mask[i] ? -Math.sqrt(outside[i]) : Math.sqrt(inside[i]);
     sdf[i] = (d - 0.5) / w;      // half-pixel shift so the zero crossing sits on the glyph edge
   }
-  return { data: sdf, w, h, aspect: w / h };
+  return sdf;
+}
+
+/** Pack a Float32Array into IEEE half floats (round-to-nearest-even). Pure, worker-safe. */
+export function toHalf(src) {
+  const out = new Uint16Array(src.length);
+  const f32 = new Float32Array(1), u32 = new Uint32Array(f32.buffer);
+  for (let i = 0; i < src.length; i++) {
+    f32[0] = src[i];
+    const x = u32[0];
+    const sign = (x >>> 16) & 0x8000;
+    let exp = ((x >>> 23) & 0xff) - 127 + 15;
+    let mant = x & 0x7fffff;
+    if (exp <= 0) {                                  // subnormal / zero
+      if (exp < -10) { out[i] = sign; continue; }
+      mant = (mant | 0x800000) >> (1 - exp);
+      out[i] = sign | ((mant + 0x1000) >> 13);
+    } else if (exp >= 31) {
+      out[i] = sign | 0x7c00;                        // overflow -> inf
+    } else {
+      let h = sign | (exp << 10) | (mant >> 13);
+      if ((mant & 0x1fff) > 0x1000 || ((mant & 0x1fff) === 0x1000 && (h & 1))) h++;   // RNE
+      out[i] = h;
+    }
+  }
+  return out;
+}
+
+/** Convenience: raster + EDT on the main thread. */
+export function textSDF(lines, opts) {
+  const r = rasterText(lines, opts);
+  return { data: edtSigned(r.mask, r.w, r.h), w: r.w, h: r.h, aspect: r.aspect };
 }

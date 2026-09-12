@@ -7,7 +7,11 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { VERT, FRAG } from './shaders.js';
-import { textSDF } from './sdf.js';
+import { rasterText, edtSigned, toHalf } from './sdf.js';
+
+// ── Load-stage timing (shown in ?debug) ──
+const T = { marks: {}, mark(n) { this.marks[n] = Math.round(performance.now()); } };
+T.mark('modules');
 
 const q = new URLSearchParams(location.search);
 const DEBUG = q.has('debug');
@@ -97,6 +101,11 @@ document.querySelectorAll('a, button').forEach(el => {
   el.addEventListener('pointerleave', () => cring?.classList.remove('hover'));
 });
 
+// ── Interaction tracking: adaptive scale while interacting, full res at 30 fps when still ──
+let lastInput = performance.now();
+const noteInput = () => { lastInput = performance.now(); };
+['pointermove', 'pointerdown', 'wheel', 'touchmove', 'keydown', 'scroll'].forEach(ev => window.addEventListener(ev, noteInput, { passive: true }));
+
 // ── Scroll → progress ──
 const scroller = $('.scroller');
 let pRaw = 0, p = 0;
@@ -141,20 +150,41 @@ const targetScale = scale;
 
 function hasWebGL2() { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } }
 
+function sdfToTexture(c, half, w, h, aspect) {
+  const tex = new THREE.DataTexture(half, w, h, THREE.RedFormat, THREE.HalfFloatType);
+  tex.minFilter = tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.flipY = true; tex.needsUpdate = true;
+  c.tex?.dispose();
+  c.tex = tex;
+  c.texSize = new THREE.Vector2(c.texW, c.texW / aspect);
+  if (!c.texReadyAt) c.texReadyAt = performance.now();
+}
+
+// Rasterise on the main thread (needs the page font, ~ms), run the distance transform in a
+// worker. The hero field is awaited before the first frame; the others arrive in the background
+// and their letters condense in when ready.
 async function buildTextures() {
-  try { await document.fonts.load('800 200px Syne'); await document.fonts.ready; } catch {}
-  for (const c of CLUSTERS) {
-    if (!c.lines) continue;
-    const s = textSDF(c.lines, { w: c.canvas[0], h: c.canvas[1] });
-    const half = new Uint16Array(s.w * s.h);
-    for (let i = 0; i < half.length; i++) half[i] = THREE.DataUtils.toHalfFloat(s.data[i]);
-    const tex = new THREE.DataTexture(half, s.w, s.h, THREE.RedFormat, THREE.HalfFloatType);
-    tex.minFilter = tex.magFilter = THREE.LinearFilter;
-    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-    tex.flipY = true; tex.needsUpdate = true;
-    c.tex = tex;
-    c.texSize = new THREE.Vector2(c.texW, c.texW / s.aspect);
-  }
+  try { await document.fonts.load('800 200px Syne'); } catch {}
+  T.mark('fonts');
+  let worker = null;
+  try { worker = new Worker(new URL('./sdf-worker.js', import.meta.url), { type: 'module' }); } catch {}
+  const pending = new Map();
+  if (worker) worker.onmessage = e => { const p = pending.get(e.data.id); if (p) { pending.delete(e.data.id); p(e.data); } };
+  // Instant low-res hero field (~20 ms on the main thread) so the first frame never waits on the worker.
+  const hero = CLUSTERS[0];
+  const lo = rasterText(hero.lines, { w: 512, h: 256 });
+  sdfToTexture(hero, toHalf(edtSigned(lo.mask, lo.w, lo.h)), lo.w, lo.h, lo.aspect);
+  T.mark('heroLoRes');
+  const jobs = CLUSTERS.filter(c => c.lines).map((c, i) => {
+    const r = rasterText(c.lines, { w: c.canvas[0], h: c.canvas[1] });
+    const done = new Promise(res => {
+      if (worker) { pending.set(i, res); worker.postMessage({ id: i, mask: r.mask, w: r.w, h: r.h }, [r.mask.buffer]); }
+      else res({ half: toHalf(edtSigned(r.mask, r.w, r.h)), ms: 0 });
+    }).then(d => { sdfToTexture(c, d.half, r.w, r.h, r.aspect); T.marks['sdf-' + c.id] = Math.round(d.ms); });
+    return { c, done };
+  });
+  Promise.all(jobs.map(j => j.done)).then(() => { T.mark('allSDF'); worker?.terminate(); });
 }
 
 function loadImage(src) {
@@ -193,7 +223,10 @@ async function init() {
   renderer.setSize(innerWidth, innerHeight, false);
 
   await buildTextures();
-  const atlas = await buildAtlas(cards);
+  const placeholder = document.createElement('canvas'); placeholder.width = placeholder.height = 4;
+  const pctx = placeholder.getContext('2d'); pctx.fillStyle = '#0a0e17'; pctx.fillRect(0, 0, 4, 4);
+  const atlas = new THREE.CanvasTexture(placeholder);
+  atlas.colorSpace = THREE.SRGBColorSpace;
 
   uniforms = {
     uRes: { value: new THREE.Vector2() }, uTime: { value: 0 },
@@ -223,11 +256,15 @@ async function init() {
   fxaa = new ShaderPass(FXAAShader);
   composer.addPass(fxaa);
   applySize();
+  await renderer.compileAsync(scene, cam);
+  T.mark('shader');
   window.addEventListener('resize', applySize);
 
   readScroll();
   p = pRaw;
   requestAnimationFrame(frame);
+  // Screenshots are only needed for the Work section: load them after the scene is up.
+  setTimeout(() => buildAtlas(cards).then(tex => { uniforms.uAtlas.value.dispose(); uniforms.uAtlas.value = tex; T.mark('atlas'); }), 250);
 }
 
 function applySize() {
@@ -377,7 +414,7 @@ if (DEBUG) {
 }
 
 // ── Frame ──
-let last = performance.now(), tSim = 0, nearK = 0, frames = 0;
+let last = performance.now(), tSim = 0, nearK = 0, frames = 0, lastRender = 0;
 function frame(now) {
   const realMs = now - last;
   let dt = FIXED_DT ? 1 / 60 : Math.min(realMs / 1000, 0.05);
@@ -387,12 +424,17 @@ function frame(now) {
   frames++;
   const t = tSim;
 
-  // adaptive resolution
-  if (!FORCE_SCALE && frames > 60 && frames % 60 === 0) {
+  // adaptive resolution: only while interacting. When the page is still we render full res at 30 fps.
+  const interacting = now - lastInput < 1200 || FORCE_P !== null;
+  if (!interacting && !FORCE_SCALE) {
+    if (now - lastRender < 31) { requestAnimationFrame(frame); return; }         // 30 fps cap while idle
+    if (scale !== targetScale) { scale = targetScale; applySize(); frameMs = 16; }
+  } else if (!FORCE_SCALE && frames > 60 && frames % 60 === 0) {
     const floor = Math.max(0.7, DPR * 0.5);
     if (frameMs > 34 && scale > floor) { scale = Math.max(floor, scale * 0.9); applySize(); }          // below 30 fps: soften a little
     else if (frameMs < 20 && scale < targetScale) { scale = Math.min(targetScale, scale * 1.05); applySize(); }
   }
+  lastRender = now;
 
   readScroll();
   p = reduce ? pRaw : lerp(p, pRaw, Math.min(1, dt * 7));
@@ -438,7 +480,8 @@ function frame(now) {
   // texts
   const [A, B] = active.map(k => CLUSTERS[k]);
   uniforms.uCoreAOn.value = cam.presA > 0.02 ? 1 : 0; uniforms.uCoreAHalf.value.copy(A.coreHalf).multiplyScalar(cam.presA);
-  uniforms.uTextAFade.value = (1 - cam.presA) * 2.5; uniforms.uTextBFade.value = (1 - cam.presB) * 2.5;
+  const readyFade = c => c.texReadyAt ? 2.5 * (1 - Math.min(1, (performance.now() - c.texReadyAt) / 900)) : 2.5;
+  uniforms.uTextAFade.value = (1 - cam.presA) * 2.5 + readyFade(A); uniforms.uTextBFade.value = (1 - cam.presB) * 2.5 + readyFade(B);
   uniforms.uSlabScale.value = Math.max(0.001, active[0] === 2 ? cam.presA : cam.presB);
   uniforms.uCoreA.value.copy(A.corePos).add(tmp.set(Math.sin(t * 0.37) * 0.25, Math.cos(t * 0.29) * 0.2, 0));
   uniforms.uCoreBOn.value = cam.presB > 0.02 ? 1 : 0; uniforms.uCoreBHalf.value.copy(B.coreHalf).multiplyScalar(cam.presB);
@@ -472,11 +515,11 @@ function frame(now) {
 
   updateOverlays(p);
   cursorTick();
-  if (frames === 2) document.body.classList.add('ready');
+  if (frames === 2) { document.body.classList.add('ready'); T.mark('firstFrame'); }
 
   if (dbgEl) {
     fpsN++; if (now - fpsT > 500) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; }
-    dbgEl.textContent = `fps ${fps}  render ${frameMs.toFixed(1)}ms  scale ${scale.toFixed(2)}  ${innerWidth}x${innerHeight} dpr ${devicePixelRatio}\np ${p.toFixed(3)} seg k=${cam.k} f=${cam.f.toFixed(2)} tr=${cam.tr.toFixed(2)} near=${nearK}\ncam ${camPos.x.toFixed(1)},${camPos.y.toFixed(1)},${camPos.z.toFixed(1)} blobs ${n} cursorR ${cursorR.toFixed(2)} hover ${hoverCard}\nmobile=${mobile} reduce=${reduce}\nptr ${pointer.x},${pointer.y} inside=${pointer.inside} type=${pointer.type} age=${Math.round(now - pointer.moved)} fresh=${fresh} rawHit=${uniforms.uSlabOn.value ? slabHit() : 'n/a'} rd=${pointerRay(rd).toArray().map(v => v.toFixed(2)).join(',')} slab2=${uniforms.uSlab.value[2].toArray().map(v => v.toFixed(1)).join(',')}${dbgEl.dataset.err || ''}`;
+    dbgEl.textContent = `fps ${fps}  render ${frameMs.toFixed(1)}ms  scale ${scale.toFixed(2)}  ${innerWidth}x${innerHeight} dpr ${devicePixelRatio}\np ${p.toFixed(3)} seg k=${cam.k} f=${cam.f.toFixed(2)} tr=${cam.tr.toFixed(2)} near=${nearK}\ncam ${camPos.x.toFixed(1)},${camPos.y.toFixed(1)},${camPos.z.toFixed(1)} blobs ${n} cursorR ${cursorR.toFixed(2)} hover ${hoverCard}\nmobile=${mobile} reduce=${reduce} idle=${!interacting}\nload ${Object.entries(T.marks).map(([k, v]) => k + '=' + v).join(' ')}\nptr ${pointer.x},${pointer.y} inside=${pointer.inside} type=${pointer.type} age=${Math.round(now - pointer.moved)} fresh=${fresh} rawHit=${uniforms.uSlabOn.value ? slabHit() : 'n/a'} rd=${pointerRay(rd).toArray().map(v => v.toFixed(2)).join(',')} slab2=${uniforms.uSlab.value[2].toArray().map(v => v.toFixed(1)).join(',')}${dbgEl.dataset.err || ''}`;
   }
   requestAnimationFrame(frame);
 }
