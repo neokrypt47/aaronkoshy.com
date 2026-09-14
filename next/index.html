@@ -12,6 +12,16 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preload" href="fonts/Syne-800-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<!-- The import map must be parsed before ANY module resolution starts, and modulepreload
+     starts it — so this has to stay above the preloads below, not after them. -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+  }
+}
+</script>
 <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js" crossorigin>
 <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/postprocessing/EffectComposer.js" crossorigin>
 <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/postprocessing/RenderPass.js" crossorigin>
@@ -27,16 +37,18 @@
 <link rel="modulepreload" href="js/main.js">
 <link rel="modulepreload" href="js/shaders.js">
 <link rel="modulepreload" href="js/sdf.js">
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
-  }
-}
-</script>
 </head>
 <body>
+
+<!-- Painted from markup, so it is on screen in the first paint rather than waiting for
+     the module graph. main.js advances it through the real load stages. -->
+<div id="preload" role="status" aria-live="polite">
+  <div class="pl-inner">
+    <div class="pl-name">AARON KOSHY</div>
+    <div class="pl-bar"><i></i></div>
+    <div class="pl-stage">loading</div>
+  </div>
+</div>
 
 <canvas id="scene" aria-hidden="true"></canvas>
 <div class="scroller" aria-hidden="true"></div>

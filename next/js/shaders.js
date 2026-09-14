@@ -38,6 +38,7 @@ uniform vec3  uAbsorb;
 uniform float uDisp;
 uniform int   uSteps;
 uniform int   uISteps;
+uniform vec2  uJitter;   // sub-pixel ray offset, in render pixels (temporal upsampling)
 
 // ── SDF helpers ──
 float smin(float a, float b, float k) {
@@ -47,6 +48,10 @@ float smin(float a, float b, float k) {
 float sdBox(vec3 p, vec3 b) { vec3 q = abs(p) - b; return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0); }
 float sdRBox(vec3 p, vec3 b, float r) { vec3 q = abs(p) - b + r; return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r; }
 
+// NB: an exact squared-distance early-out here (skip the sqrt/smin when a blob is too
+// far to change the result) measured SLOWER — 56.7 ms vs 48.4 ms — and pushed the ANGLE
+// shader compile past 20 s. A continue in this dynamically-bounded loop stops it being
+// unrolled, and the branch divergence costs more than the sqrt it saves. Don't re-add it.
 float sdLiquid(vec3 p) {
   float d = 1e5;
   if (uCoreAOn > 0.5) d = sdRBox(p - uCoreA, uCoreAHalf, 0.8);
@@ -87,18 +92,57 @@ float sdSolid(vec3 p, out int id) {
   return d;
 }
 
-vec3 nLiquid(vec3 p) {
-  const vec2 k = vec2(1.0, -1.0);
-  const float h = 0.004;
-  return normalize(k.xyy * sdLiquid(p + k.xyy * h) + k.yyx * sdLiquid(p + k.yyx * h) +
-                   k.yxy * sdLiquid(p + k.yxy * h) + k.xxx * sdLiquid(p + k.xxx * h));
+// Analytic gradient. For smin(a,b,k) the derivative is exactly mix(gb, ga, h) with the
+// same h the distance uses: differentiating mix(b,a,h) - k*h*(1-h) leaves a correction
+// term ((a-b) - k*(1-2h)) * dh/dp, and in the unclamped range (b-a) == k*(2h-1), so that
+// bracket is identically zero. Clamped, dh/dp is zero and mix picks the surviving branch.
+// So one pass yields both, replacing the 4 sdLiquid calls a tetrahedron normal needed —
+// and normals were 8 of the ~10 sdLiquid evaluations each pixel was doing.
+vec3 gRBox(vec3 pl, vec3 b, float r) {
+  vec3 s = sign(pl);
+  vec3 q = abs(pl) - b + r;
+  vec3 mq = max(q, 0.0);
+  float l = length(mq);
+  if (l > 1e-5) return s * (mq / l);
+  float m = max(q.x, max(q.y, q.z));                       // inside: push along the deepest axis
+  return s * vec3(step(m, q.x), step(m, q.y), step(m, q.z));
 }
+
+float sdLiquidG(vec3 p, out vec3 g) {
+  float d = 1e5; g = vec3(0.0, 0.0, 1.0);
+  if (uCoreAOn > 0.5) {
+    vec3 l = p - uCoreA;
+    d = sdRBox(l, uCoreAHalf, 0.8); g = gRBox(l, uCoreAHalf, 0.8);
+  }
+  if (uCoreBOn > 0.5) {
+    vec3 l = p - uCoreB;
+    float db = sdRBox(l, uCoreBHalf, 0.8); vec3 gb = gRBox(l, uCoreBHalf, 0.8);
+    float h = clamp(0.5 + 0.5 * (db - d) / 1.2, 0.0, 1.0);
+    d = mix(db, d, h) - 1.2 * h * (1.0 - h); g = mix(gb, g, h);
+  }
+  for (int i = 0; i < MAXB; i++) {
+    if (i >= uNB) break;
+    vec4 b = uBlobs[i];
+    vec3 dv = p - b.xyz; float L = length(dv);
+    float db = L - b.w; vec3 gb = dv / max(L, 1e-6);
+    float h = clamp(0.5 + 0.5 * (db - d) / 1.3, 0.0, 1.0);
+    d = mix(db, d, h) - 1.3 * h * (1.0 - h); g = mix(gb, g, h);
+  }
+  if (uCursor.w > 0.001) {
+    vec3 dv = p - uCursor.xyz; float L = length(dv);
+    float db = L - uCursor.w; vec3 gb = dv / max(L, 1e-6);
+    float h = clamp(0.5 + 0.5 * (db - d) / 0.85, 0.0, 1.0);
+    d = mix(db, d, h) - 0.85 * h * (1.0 - h); g = mix(gb, g, h);
+  }
+  return d;
+}
+vec3 nLiquid(vec3 p) { vec3 g; sdLiquidG(p, g); return normalize(g); }
+// Tetrahedron, 4 taps rather than 6 central differences — each tap is two texture
+// fetches through sdText, so this drops 4 of them per shaded solid pixel.
 vec3 nSolid(vec3 p) {
-  int id; const float h = 0.008;
-  return normalize(vec3(
-    sdSolid(p + vec3(h, 0, 0), id) - sdSolid(p - vec3(h, 0, 0), id),
-    sdSolid(p + vec3(0, h, 0), id) - sdSolid(p - vec3(0, h, 0), id),
-    sdSolid(p + vec3(0, 0, h), id) - sdSolid(p - vec3(0, 0, h), id)));
+  int id; const vec2 k = vec2(1.0, -1.0); const float h = 0.008;
+  return normalize(k.xyy * sdSolid(p + k.xyy * h, id) + k.yyx * sdSolid(p + k.yyx * h, id) +
+                   k.yxy * sdSolid(p + k.yxy * h, id) + k.xxx * sdSolid(p + k.xxx * h, id));
 }
 
 // ── Environment: dark studio with two softboxes ──
@@ -182,7 +226,7 @@ bool raySphere(vec3 ro, vec3 rd, vec4 s, out float t0, out float t1) {
 float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 
 void main() {
-  vec2 uv = (gl_FragCoord.xy * 2.0 - uRes) / uRes.y;
+  vec2 uv = ((gl_FragCoord.xy + uJitter) * 2.0 - uRes) / uRes.y;
   vec3 rd = normalize(uCamMat * vec3(uv * uTanFov, -1.0));
   vec3 ro = uCamPos;
 
@@ -191,6 +235,11 @@ void main() {
   bg *= vig;
 
   vec3 col;
+  // Distance along rd to whatever this pixel resolved to. The temporal resolve needs it
+  // to turn the pixel back into a world position and look it up in the previous frame.
+  // Background gets a far sentinel, which reprojects as a pure direction — correct, since
+  // the environment is infinitely distant.
+  float hitT = 1e4;
   // Only march inside the union of the two cluster bounding spheres; everything else is background.
   float ta0, ta1, tb0, tb1;
   bool ha = raySphere(ro, rd, uBoundA, ta0, ta1);
@@ -200,6 +249,7 @@ void main() {
   if (hb) { tStart = min(tStart, max(tb0, 0.0)); tEnd = max(tEnd, tb1); }
   if (sdLiquid(ro) < 0.0) {
     col = marchInside(ro, rd);
+    hitT = 0.0;
   } else if (!ha && !hb) {
     col = bg;
   } else {
@@ -218,7 +268,9 @@ void main() {
       col = bg;
     } else if (hit >= 0) {
       col = shadeSolid(p, hit, rd);
+      hitT = t;
     } else {
+      hitT = t;
       vec3 n = nLiquid(p);
       float cosi = clamp(dot(-rd, n), 0.0, 1.0);
       float F = 0.04 + 0.96 * pow(1.0 - cosi, 5.0);
@@ -231,6 +283,6 @@ void main() {
     }
   }
   col += (hash12(gl_FragCoord.xy + uTime) - 0.5) / 255.0;
-  fragColor = vec4(col, 1.0);
+  fragColor = vec4(col, hitT);
 }
 `;

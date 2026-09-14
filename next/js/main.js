@@ -7,10 +7,39 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { VERT, FRAG } from './shaders.js';
+import { TAAPass } from './taa.js';
 import { rasterText, edtSigned, toHalf } from './sdf.js';
 
+// ── Preloader ──
+// Driven by the same marks ?debug reports, so it tracks real work rather than a timer.
+// 'shader' gets the widest slice because compiling this fragment shader is the long pole
+// — seconds warm, and tens of seconds against a cold driver cache.
+const PL = (() => {
+  const el = document.getElementById('preload');
+  if (!el) return { to() {}, done() {} };
+  const bar = el.querySelector('.pl-bar i'), label = el.querySelector('.pl-stage');
+  const STAGES = {
+    modules: [8, 'loading'], fonts: [20, 'fonts'], heroLoRes: [32, 'type'],
+    shader: [82, 'compiling shader'], firstFrame: [100, 'ready'],
+  };
+  return {
+    to(name) {
+      const s = STAGES[name];
+      if (!s) return;
+      bar.style.width = s[0] + '%';
+      label.textContent = s[1];
+      el.classList.toggle('waiting', name === 'heroLoRes');   // the compile is next, and silent
+    },
+    done() {
+      el.classList.remove('waiting');
+      el.classList.add('done');
+      setTimeout(() => el.remove(), 900);
+    },
+  };
+})();
+
 // ── Load-stage timing (shown in ?debug) ──
-const T = { marks: {}, mark(n) { this.marks[n] = Math.round(performance.now()); } };
+const T = { marks: {}, mark(n) { this.marks[n] = Math.round(performance.now()); PL.to(n); } };
 T.mark('modules');
 
 const q = new URLSearchParams(location.search);
@@ -18,6 +47,9 @@ const DEBUG = q.has('debug');
 const FIXED_DT = q.has('fixeddt');
 const FORCE_P = q.has('p') ? parseFloat(q.get('p')) : null;
 const FORCE_SCALE = q.has('scale') ? parseFloat(q.get('scale')) : null;
+// Kept as an escape hatch: if temporal upsampling misbehaves on some driver, ?taa=0
+// falls back to rendering the march straight at the output resolution.
+const TAA = q.get('taa') !== '0';
 
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const mobile = matchMedia('(pointer: coarse)').matches || matchMedia('(max-width: 900px)').matches;
@@ -143,7 +175,7 @@ function cameraFor(prog) {
 
 // ── Renderer ──
 const canvas = $('#scene');
-let renderer, composer, bloom, fxaa, material, uniforms;
+let renderer, composer, bloom, fxaa, material, uniforms, scene, cam, taa;
 const DPR = Math.min(devicePixelRatio || 1, 2);
 let scale = FORCE_SCALE ?? (mobile ? DPR * 0.55 : DPR * 0.85);   // drawing-buffer px per CSS px
 const targetScale = scale;
@@ -215,7 +247,7 @@ const cards = [...document.querySelectorAll('#work-list li')].map(li => ({
 }));
 
 async function init() {
-  if (!hasWebGL2()) { document.body.classList.add('no-gl'); return; }
+  if (!hasWebGL2()) { document.body.classList.add('no-gl'); PL.done(); return; }
   renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
@@ -242,14 +274,22 @@ async function init() {
     uSlab: { value: SLAB_X.map(x => new THREE.Vector4(CLUSTERS[2].x + x, CLUSTERS[2].y, CLUSTERS[2].z + 0.55, 0)) }, uSlabHalf: { value: SLAB_HALF }, uSlabOn: { value: 0 }, uSlabScale: { value: 1 }, uAtlas: { value: atlas },
     uIor: { value: 1.27 }, uAbsorb: { value: new THREE.Vector3(0.10, 0.17, 0.025) }, uDisp: { value: mobile ? 0 : 0.012 },
     uSteps: { value: mobile ? 64 : 96 }, uISteps: { value: mobile ? 36 : 56 },
+    uJitter: { value: new THREE.Vector2() },
   };
   material = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms, glslVersion: THREE.GLSL3, depthTest: false, depthWrite: false });
-  const scene = new THREE.Scene();
-  scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material));
-  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  scene = new THREE.Scene();
+  // The vertex shader writes clip space directly, so the mesh's real transform says
+  // nothing about where it lands — leave it out of the frustum test or it can be culled.
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+  quad.frustumCulled = false;
+  scene.add(quad);
+  cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
   composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, cam));
+  // TAAPass renders the scene itself, at half linear resolution, and resolves to full —
+  // so it stands in for RenderPass rather than following it.
+  if (TAA) { taa = new TAAPass(scene, cam, uniforms, 0.5); composer.addPass(taa); }
+  else composer.addPass(new RenderPass(scene, cam));
   bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.3, 0.3, 1.1);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
@@ -267,13 +307,18 @@ async function init() {
   setTimeout(() => buildAtlas(cards).then(tex => { uniforms.uAtlas.value.dispose(); uniforms.uAtlas.value = tex; T.mark('atlas'); }), 250);
 }
 
+// Every target has to land on whole pixels. composer.setSize() multiplies by the pixel
+// ratio internally, so a fractional scale (1.5 dpr * 0.85 = 1.275) gave render targets
+// sized 1305.56 x 712.47 against a 1305 x 712 canvas — a size mismatch on every pass.
+// Drive the composer at ratio 1 with the renderer's real integer drawing-buffer size.
 function applySize() {
   renderer.setPixelRatio(scale);
   renderer.setSize(innerWidth, innerHeight, false);
-  composer.setPixelRatio(scale);
-  composer.setSize(innerWidth, innerHeight);
-  uniforms.uRes.value.set(innerWidth * scale, innerHeight * scale);
-  if (fxaa) fxaa.material.uniforms.resolution.value.set(1 / (innerWidth * scale), 1 / (innerHeight * scale));
+  const w = renderer.domElement.width, h = renderer.domElement.height;
+  composer.setPixelRatio(1);
+  composer.setSize(w, h);
+  uniforms.uRes.value.set(w, h);
+  if (fxaa) fxaa.material.uniforms.resolution.value.set(1 / w, 1 / h);
 }
 
 // ── Physics ──
@@ -413,26 +458,76 @@ if (DEBUG) {
   window.addEventListener('error', e => { dbgEl.dataset.err = (dbgEl.dataset.err || '') + '\n' + e.message; });
 }
 
+// ── Adaptive resolution ──
+// The scene is purely fragment-bound, so frame cost is very close to linear in
+// drawing-buffer pixels. So instead of nudging the scale by 10% and waiting a whole
+// second to see what happened, measure ms-per-pixel and solve for the scale that fits
+// the budget. That converges in a step or two rather than tens of seconds.
+//
+// The cost model is only fed while interacting, where every rAF callback renders and
+// the interval is an honest measure of GPU cost. While idle we cap at 30 fps, which
+// makes the interval meaningless — so we hold the scale we learned rather than
+// throwing it away and starting over on the next pointer move.
+const BUDGET_MS = 33;                              // target frame time while interacting
+const SCALE_FLOOR = Math.min(0.5, targetScale);    // below this the letters go soft
+const ADAPT_EVERY = 300;                           // ms between adjustments
+let msPerPx = 0, lastAdapt = 0, renderedRun = 0, adapts = 0;
+
+// Console handles for profiling. Behind ?debug so a normal page load exposes no globals
+// and hands out no references to the renderer. Note that the ?debug overlay itself costs
+// enough per frame to shift what it reports, so read these rather than the overlay when
+// the number matters.
+if (DEBUG) {
+  window.__gl = () => ({ renderer, composer, scene, cam, uniforms, material, taa });
+  window.__perf = () => ({
+    scale, targetScale, floor: SCALE_FLOOR, frameMs, msPerPx, adapts,
+    passes: composer?.passes.map(p => p.constructor.name),
+    canvas: renderer && [renderer.domElement.width, renderer.domElement.height],
+  });
+}
+
+function adaptScale() {
+  adapts++;
+  const pixels = innerWidth * innerHeight * scale * scale;
+  // At or near vsync the interval hides the real cost, so we can't measure — but we do
+  // know there is headroom, so ease back toward full resolution.
+  if (frameMs < 17.5) {
+    if (scale < targetScale) { scale = Math.min(targetScale, scale * 1.12); applySize(); }
+    return;
+  }
+  msPerPx = msPerPx ? lerp(msPerPx, frameMs / pixels, 0.3) : frameMs / pixels;
+  let want = Math.sqrt((BUDGET_MS / msPerPx) / (innerWidth * innerHeight));
+  want = clamp(want, SCALE_FLOOR, targetScale);
+  want = clamp(want, scale * 0.6, scale * 1.4);                 // damp: one bad frame can't slam it
+  if (Math.abs(want - scale) > scale * 0.04) { scale = want; applySize(); }
+}
+
 // ── Frame ──
 let last = performance.now(), tSim = 0, nearK = 0, frames = 0, lastRender = 0;
 function frame(now) {
   const realMs = now - last;
   let dt = FIXED_DT ? 1 / 60 : Math.min(realMs / 1000, 0.05);
   last = now;
-  if (frames > 5) frameMs = lerp(frameMs, realMs, 0.08);      // GPU-bound cost shows up as rAF interval
   tSim += dt;
   frames++;
   const t = tSim;
 
-  // adaptive resolution: only while interacting. When the page is still we render full res at 30 fps.
-  const interacting = now - lastInput < 1200 || FORCE_P !== null;
+  // Keep the loop running flat out for the first few seconds so the controller can
+  // settle before the first pointer move. The cost EMA needs ~20 frames to climb, which
+  // on a slow GPU is longer than the 1.2 s idle timeout — without this the page loads at
+  // full resolution and stays there, sluggish, until the visitor happens to touch it.
+  const interacting = now - lastInput < 1200 || now < 5000 || FORCE_P !== null;
+
+  // 30 fps cap while the page is still. Skipped callbacks never reach the cost model.
   if (!interacting && !FORCE_SCALE) {
-    if (now - lastRender < 31) { requestAnimationFrame(frame); return; }         // 30 fps cap while idle
-    if (scale !== targetScale) { scale = targetScale; applySize(); frameMs = 16; }
-  } else if (!FORCE_SCALE && frames > 60 && frames % 60 === 0) {
-    const floor = Math.max(0.7, DPR * 0.5);
-    if (frameMs > 34 && scale > floor) { scale = Math.max(floor, scale * 0.9); applySize(); }          // below 30 fps: soften a little
-    else if (frameMs < 20 && scale < targetScale) { scale = Math.min(targetScale, scale * 1.05); applySize(); }
+    if (now - lastRender < 31) { requestAnimationFrame(frame); return; }
+    renderedRun = 0;
+  } else {
+    // Measure whenever the loop is running flat out, even under ?scale= — the forced
+    // case is exactly when you want to read the cost of a scale you picked by hand.
+    if (frames > 5 && renderedRun > 0) frameMs = lerp(frameMs, realMs, 0.15);   // GPU-bound cost shows up as rAF interval
+    renderedRun++;
+    if (!FORCE_SCALE && now - lastAdapt > ADAPT_EVERY && renderedRun > 3) { adaptScale(); lastAdapt = now; }
   }
   lastRender = now;
 
@@ -472,9 +567,27 @@ function frame(now) {
   if (!reduce) for (const k of active) stepBlobs(CLUSTERS[k], dt, t, cursorWorld, curOn && k === nearK);
 
   // upload blobs
+  // Every blob costs a sqrt and a smin at each of the ~10 sdLiquid evaluations a pixel
+  // does, whether or not it is anywhere near the screen — measured at roughly 1.9 ms per
+  // blob per frame at scale 0.5. So drop the ones that cannot touch a visible pixel.
+  // A blob reaches BLOB_K (1.3) beyond its radius through the smooth-min, so that is the
+  // margin; the test is exact, not a heuristic, and changes nothing on screen.
   let n = 0;
   const pres = [cam.presA, cam.presB];
-  active.forEach((k, ai) => { for (const b of CLUSTERS[k].blobs) { if (n >= 36) break; const r = b.drip ? b.r : b.r * pres[ai]; if (r > 0.02) uniforms.uBlobs.value[n++].set(b.pos.x, b.pos.y, b.pos.z, r); } });
+  const tx = uniforms.uTanFov.value * (innerWidth / innerHeight), ty = uniforms.uTanFov.value;
+  const nx = 1 / Math.hypot(1, tx), ny = 1 / Math.hypot(1, ty);
+  active.forEach((k, ai) => {
+    for (const b of CLUSTERS[k].blobs) {
+      if (n >= 36) break;
+      const r = b.drip ? b.r : b.r * pres[ai];
+      if (r <= 0.02) continue;
+      tmp2.subVectors(b.pos, camPos);
+      const zc = tmp2.dot(fwd), xc = tmp2.dot(right), yc = tmp2.dot(up2), R = r + 1.3;
+      if (-zc > R || (xc - zc * tx) * nx > R || (-xc - zc * tx) * nx > R ||
+          (yc - zc * ty) * ny > R || (-yc - zc * ty) * ny > R) continue;
+      uniforms.uBlobs.value[n++].set(b.pos.x, b.pos.y, b.pos.z, r);
+    }
+  });
   uniforms.uNB.value = n;
 
   // texts
@@ -510,18 +623,25 @@ function frame(now) {
   uniforms.uTime.value = t;
   uniforms.uCamPos.value.copy(camPos);
   uniforms.uCamMat.value.copy(camMat);
+  taa?.setCamera(camPos, right, up2, fwd, uniforms.uTanFov.value, innerWidth / innerHeight);
 
   composer.render();
 
   updateOverlays(p);
   cursorTick();
-  if (frames === 2) { document.body.classList.add('ready'); T.mark('firstFrame'); }
+  if (frames === 2) { document.body.classList.add('ready'); T.mark('firstFrame'); PL.done(); }
 
+  // Rebuild at 2 Hz, not every frame: this string costs ~30 ms a frame to compose and
+  // lay out, which is more than the scene does. Updating it per frame made ?debug report
+  // its own cost as the scene's.
   if (dbgEl) {
-    fpsN++; if (now - fpsT > 500) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; }
-    dbgEl.textContent = `fps ${fps}  render ${frameMs.toFixed(1)}ms  scale ${scale.toFixed(2)}  ${innerWidth}x${innerHeight} dpr ${devicePixelRatio}\np ${p.toFixed(3)} seg k=${cam.k} f=${cam.f.toFixed(2)} tr=${cam.tr.toFixed(2)} near=${nearK}\ncam ${camPos.x.toFixed(1)},${camPos.y.toFixed(1)},${camPos.z.toFixed(1)} blobs ${n} cursorR ${cursorR.toFixed(2)} hover ${hoverCard}\nmobile=${mobile} reduce=${reduce} idle=${!interacting}\nload ${Object.entries(T.marks).map(([k, v]) => k + '=' + v).join(' ')}\nptr ${pointer.x},${pointer.y} inside=${pointer.inside} type=${pointer.type} age=${Math.round(now - pointer.moved)} fresh=${fresh} rawHit=${uniforms.uSlabOn.value ? slabHit() : 'n/a'} rd=${pointerRay(rd).toArray().map(v => v.toFixed(2)).join(',')} slab2=${uniforms.uSlab.value[2].toArray().map(v => v.toFixed(1)).join(',')}${dbgEl.dataset.err || ''}`;
+    fpsN++;
+    if (now - fpsT > 500) {
+      fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now;
+      dbgEl.textContent = `fps ${fps}  render ${frameMs.toFixed(1)}ms  scale ${scale.toFixed(2)}  ${innerWidth}x${innerHeight} dpr ${devicePixelRatio}\np ${p.toFixed(3)} seg k=${cam.k} f=${cam.f.toFixed(2)} tr=${cam.tr.toFixed(2)} near=${nearK}\ncam ${camPos.x.toFixed(1)},${camPos.y.toFixed(1)},${camPos.z.toFixed(1)} blobs ${n} cursorR ${cursorR.toFixed(2)} hover ${hoverCard}\nmobile=${mobile} reduce=${reduce} idle=${!interacting} px/ms ${msPerPx ? (1 / msPerPx / 1000).toFixed(0) + 'k' : '—'}\nload ${Object.entries(T.marks).map(([k, v]) => k + '=' + v).join(' ')}\nptr ${pointer.x},${pointer.y} inside=${pointer.inside} type=${pointer.type} age=${Math.round(now - pointer.moved)} fresh=${fresh} hover=${hoverCard} slab2=${uniforms.uSlab.value[2].toArray().map(v => v.toFixed(1)).join(',')}${dbgEl.dataset.err || ''}`;
+    }
   }
   requestAnimationFrame(frame);
 }
 
-init().catch(err => { console.error(err); document.body.classList.add('no-gl'); if (dbgEl) dbgEl.textContent = 'INIT FAILED ' + err.message; });
+init().catch(err => { console.error(err); document.body.classList.add('no-gl'); PL.done(); if (dbgEl) dbgEl.textContent = 'INIT FAILED ' + err.message; });
