@@ -7,7 +7,6 @@
 <title>Aaron Koshy</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2350008c'/><text x='50' y='68' font-size='50' font-family='Arial,sans-serif' font-weight='700' fill='white' text-anchor='middle'>AK</text></svg>">
 <link rel="stylesheet" href="style.css">
-<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preload" href="fonts/Syne-800-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -17,23 +16,24 @@
 <script type="importmap">
 {
   "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+    "three": "./vendor/three/build/three.module.min.js",
+    "three/addons/": "./vendor/three/examples/jsm/"
   }
 }
 </script>
-<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js" crossorigin>
-<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/postprocessing/EffectComposer.js" crossorigin>
-<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/postprocessing/RenderPass.js" crossorigin>
-<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/postprocessing/UnrealBloomPass.js" crossorigin>
-<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/postprocessing/OutputPass.js" crossorigin>
-<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/postprocessing/ShaderPass.js" crossorigin>
-<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/postprocessing/Pass.js" crossorigin>
-<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/postprocessing/MaskPass.js" crossorigin>
-<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/shaders/FXAAShader.js" crossorigin>
-<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/shaders/CopyShader.js" crossorigin>
-<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/shaders/LuminosityHighPassShader.js" crossorigin>
-<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/shaders/OutputShader.js" crossorigin>
+<link rel="modulepreload" href="vendor/three/build/three.module.min.js">
+<link rel="modulepreload" href="vendor/three/build/three.core.min.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/postprocessing/EffectComposer.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/postprocessing/RenderPass.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/postprocessing/UnrealBloomPass.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/postprocessing/OutputPass.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/postprocessing/ShaderPass.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/postprocessing/Pass.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/postprocessing/MaskPass.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/shaders/FXAAShader.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/shaders/CopyShader.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/shaders/LuminosityHighPassShader.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/shaders/OutputShader.js">
 <link rel="modulepreload" href="js/main.js">
 <link rel="modulepreload" href="js/shaders.js">
 <link rel="modulepreload" href="js/sdf.js">
@@ -112,7 +112,6 @@
     <a href="/city/">CITY//FPS</a></li>
 </ul>
 
-<script>document.getElementById('yr').textContent = new Date().getFullYear();</script>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>

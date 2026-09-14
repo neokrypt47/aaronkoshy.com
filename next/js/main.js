@@ -42,19 +42,26 @@ const PL = (() => {
 const T = { marks: {}, mark(n) { this.marks[n] = Math.round(performance.now()); PL.to(n); } };
 T.mark('modules');
 
-const q = new URLSearchParams(location.search);
+// ── Developer flags ──
+// Only honoured when the page is served from localhost (serve.py). On the public site every
+// flag is inert: no overlay, no console handles, no forced state, so visitors cannot reach or
+// even see the debug surface.
+const DEV = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+const q = DEV ? new URLSearchParams(location.search) : new URLSearchParams();
+const num = (key, lo, hi) => { const v = parseFloat(q.get(key)); return q.has(key) && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : null; };
 const DEBUG = q.has('debug');
 const FIXED_DT = q.has('fixeddt');
-const FORCE_P = q.has('p') ? parseFloat(q.get('p')) : null;
-const FORCE_SCALE = q.has('scale') ? parseFloat(q.get('scale')) : null;
+const FORCE_P = num('p', 0, 1);
+const FORCE_SCALE = num('scale', 0.25, 3);
 // Kept as an escape hatch: if temporal upsampling misbehaves on some driver, ?taa=0
-// falls back to rendering the march straight at the output resolution.
+// falls back to rendering the march straight at the output resolution (dev only).
 const TAA = q.get('taa') !== '0';
 
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const mobile = matchMedia('(pointer: coarse)').matches || matchMedia('(max-width: 900px)').matches;
 
 const $ = s => document.querySelector(s);
+const yr = document.getElementById('yr'); if (yr) yr.textContent = String(new Date().getFullYear());
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const lerp = (a, b, t) => a + (b - a) * t;
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -156,6 +163,7 @@ document.querySelectorAll('[data-goto]').forEach(a => a.addEventListener('click'
 
 // section k spans p ∈ [k/(N-1) - 0.5/(N-1), k/(N-1) + 0.5/(N-1)] roughly; camera dwells near each centre.
 function cameraFor(prog) {
+  prog = Number.isFinite(prog) ? clamp(prog, 0, 1) : 0;
   const seg = prog * (N - 1);            // 0..3, integer at each cluster
   const k = Math.min(N - 2, Math.floor(seg));
   const f = seg - k;                     // 0..1 between cluster k and k+1
