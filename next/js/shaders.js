@@ -4,8 +4,14 @@ export const VERT = /* glsl */`
 void main() { gl_Position = vec4(position, 1.0); }
 `;
 
-export const FRAG = /* glsl */`
-#define MAXB 36
+// FRAG_TEMPLATE is built into two variants (see buildFrag below): the full-quality FRAG
+// (unchanged output) and FRAG_FAST, a cheap-to-compile placeholder used while the full
+// shader compiles in the background (see js/main.js's progressive shader swap). The
+// expensive-to-compile parts are the loop bounds below (MAXB, the raymarch step count,
+// the marchInside step count) — these are compile-time literals ANGLE has to unroll, not
+// just runtime limits, which is why they're templated rather than left as runtime uniforms.
+const FRAG_TEMPLATE = /* glsl */`
+#define MAXB __MAXB__
 precision highp float;
 precision highp sampler2D;
 out vec4 fragColor;
@@ -180,7 +186,7 @@ vec3 shadeSolid(vec3 p, int id, vec3 rd) {
 vec3 marchInside(vec3 p, vec3 rr) {
   float tt = 0.02; vec3 q = p + rr * tt; int sid = -1; bool exited = false;
   float nearText = 10.0;
-  for (int i = 0; i < 128; i++) {
+  for (int i = 0; i < __IM_STEPS__; i++) {
     if (i >= uISteps) break;
     float dl = -sdLiquid(q);
     int id; float ds = sdSolid(q, id);
@@ -198,9 +204,15 @@ vec3 marchInside(vec3 p, vec3 rr) {
     col = shadeSolid(q, sid, rr);
   } else {
     vec3 n2 = -nLiquid(q);
+#ifdef CHEAP
+    vec3 r0 = refract(rr, n2, uIor);
+    vec3 r1 = r0;
+    vec3 r2 = r0;
+#else
     vec3 r0 = refract(rr, n2, uIor * (1.0 - uDisp));
     vec3 r1 = refract(rr, n2, uIor);
     vec3 r2 = refract(rr, n2, uIor * (1.0 + uDisp));
+#endif
     vec3 rf = reflect(rr, n2);
     bool tir = dot(r1, r1) < 0.5;
     if (tir) { r0 = rf; r1 = rf; r2 = rf; }                      // total internal reflection
@@ -254,7 +266,7 @@ void main() {
     col = bg;
   } else {
     float t = tStart; int hit = -2; vec3 p = ro;
-    for (int i = 0; i < 256; i++) {
+    for (int i = 0; i < __RM_STEPS__; i++) {
       if (i >= uSteps) break;
       p = ro + rd * t;
       float dl = sdLiquid(p);
@@ -286,3 +298,17 @@ void main() {
   fragColor = vec4(col, hitT);
 }
 `;
+
+function buildFrag({ maxb, rmSteps, imSteps, cheap }) {
+  const s = FRAG_TEMPLATE
+    .replace('__MAXB__', String(maxb))
+    .replace('__RM_STEPS__', String(rmSteps))
+    .replace('__IM_STEPS__', String(imSteps));
+  return cheap ? '#define CHEAP\n' + s : s;
+}
+
+// Full quality — identical output to the pre-refactor shader.
+export const FRAG = buildFrag({ maxb: 36, rmSteps: 256, imSteps: 128, cheap: false });
+// Cheap placeholder: same SDF/lighting model, far smaller compile-time loop bounds and no
+// chromatic dispersion, so ANGLE compiles it fast. See js/main.js for the swap logic.
+export const FRAG_FAST = buildFrag({ maxb: 10, rmSteps: 48, imSteps: 24, cheap: true });

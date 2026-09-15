@@ -6,7 +6,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
-import { VERT, FRAG } from './shaders.js';
+import { VERT, FRAG, FRAG_FAST } from './shaders.js';
 import { TAAPass } from './taa.js';
 import { rasterText, edtSigned, toHalf } from './sdf.js';
 
@@ -208,7 +208,13 @@ function cameraFor(prog) {
 
 // ── Renderer ──
 const canvas = $('#scene');
-let renderer, composer, bloom, fxaa, material, uniforms, scene, cam, taa;
+let renderer, composer, bloom, fxaa, material, uniforms, scene, cam, taa, quad;
+// Progressive shader swap: `material`/`quad` start on the cheap FRAG_FAST variant so the
+// page paints and is interactive almost immediately; the full FRAG shader compiles in the
+// background (started once a few real frames have rendered) and is swapped in on a frame
+// boundary once ready. See buildFrag()/FRAG_FAST in shaders.js for why a separate cheap
+// GLSL variant — not just lower runtime uSteps/uISteps — is what actually compiles fast.
+let fullMaterial = null, fullReady = false, fullCompileStarted = false;
 const DPR = Math.min(devicePixelRatio || 1, 2);
 let scale = FORCE_SCALE ?? (mobile ? DPR * 0.55 : DPR * 0.85);   // drawing-buffer px per CSS px
 const targetScale = scale;
@@ -309,11 +315,13 @@ async function init() {
     uSteps: { value: mobile ? 64 : 96 }, uISteps: { value: mobile ? 36 : 56 },
     uJitter: { value: new THREE.Vector2() },
   };
-  material = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms, glslVersion: THREE.GLSL3, depthTest: false, depthWrite: false });
+  // Cheap variant first: compiles fast (small compile-time loop bounds, see shaders.js),
+  // so the page can paint and become interactive without waiting on the full shader.
+  material = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG_FAST, uniforms, glslVersion: THREE.GLSL3, depthTest: false, depthWrite: false });
   scene = new THREE.Scene();
   // The vertex shader writes clip space directly, so the mesh's real transform says
   // nothing about where it lands — leave it out of the frustum test or it can be culled.
-  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+  quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
   quad.frustumCulled = false;
   scene.add(quad);
   cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -329,7 +337,7 @@ async function init() {
   fxaa = new ShaderPass(FXAAShader);
   composer.addPass(fxaa);
   applySize();
-  await renderer.compileAsync(scene, cam);
+  await renderer.compileAsync(scene, cam);   // cheap FRAG_FAST — fast even on a cold driver cache
   T.mark('shader');
   window.addEventListener('resize', applySize);
 
@@ -338,6 +346,33 @@ async function init() {
   requestAnimationFrame(frame);
   // Screenshots are only needed for the Work section: load them after the scene is up.
   setTimeout(() => buildAtlas(cards).then(tex => { uniforms.uAtlas.value.dispose(); uniforms.uAtlas.value = tex; T.mark('atlas'); }), 250);
+}
+
+// Compiles the full-quality FRAG shader in the background, well after the cheap placeholder
+// has already painted (see the frame-count gate in frame()). Built as a separate throwaway
+// scene/mesh sharing `quad`'s geometry and the live `uniforms` object, so the visible scene
+// is untouched while this compiles — frame() swaps `quad.material` in once it resolves.
+function startFullCompile() {
+  if (document.visibilityState !== 'visible') {
+    // Don't burn CPU/battery compiling a shader nobody's looking at; retry once visible.
+    document.addEventListener('visibilitychange', function onVis() {
+      if (document.visibilityState === 'visible') { document.removeEventListener('visibilitychange', onVis); startFullCompile(); }
+    });
+    return;
+  }
+  fullMaterial = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms, glslVersion: THREE.GLSL3, depthTest: false, depthWrite: false });
+  const fullScene = new THREE.Scene();
+  const fullQuad = new THREE.Mesh(quad.geometry, fullMaterial);
+  fullQuad.frustumCulled = false;
+  fullScene.add(fullQuad);
+  if (DEBUG) console.log('[shader] full compile started', performance.now().toFixed(0));
+  renderer.compileAsync(fullScene, cam)
+    .then(() => {
+      fullReady = true;
+      T.marks.shaderFull = Math.round(performance.now());
+      if (DEBUG) console.log('[shader] full compile resolved', performance.now().toFixed(0));
+    })
+    .catch(err => { console.error('full shader compile failed, staying on the placeholder', err); fullMaterial = null; });
 }
 
 // Every target has to land on whole pixels. composer.setSize() multiplies by the pixel
@@ -512,7 +547,7 @@ let msPerPx = 0, lastAdapt = 0, renderedRun = 0, adapts = 0;
 // enough per frame to shift what it reports, so read these rather than the overlay when
 // the number matters.
 if (DEBUG) {
-  window.__gl = () => ({ renderer, composer, scene, cam, uniforms, material, taa });
+  window.__gl = () => ({ renderer, composer, scene, cam, uniforms, material, taa, quad, fullMaterial, fullReady });
   window.__perf = () => ({
     scale, targetScale, floor: SCALE_FLOOR, frameMs, msPerPx, adapts,
     passes: composer?.passes.map(p => p.constructor.name),
@@ -546,6 +581,22 @@ function frame(now) {
   tSim += dt;
   frames++;
   const t = tSim;
+
+  // Kick off the expensive full-shader compile once a handful of real (placeholder) frames
+  // have already rendered — not sooner, or this reintroduces the blocking wait it's meant
+  // to avoid; not via requestIdleCallback, since this loop's continuous rAF calls mean the
+  // browser may never report a genuine idle gap.
+  if (frames === 6 && !fullCompileStarted) { fullCompileStarted = true; startFullCompile(); }
+  // Swap to the full shader the moment it's ready, on a clean frame boundary. Invalidating
+  // TAA's history avoids a one-frame smear from the neighborhood clamp reacting to the
+  // sudden shading change (see TAAPass.invalidate in taa.js).
+  if (fullReady && quad.material !== fullMaterial) {
+    quad.material = fullMaterial;
+    material.dispose();
+    material = fullMaterial;
+    taa?.invalidate();
+    if (DEBUG) console.log('[shader] swapped placeholder -> full at frame', frames, performance.now().toFixed(0));
+  }
 
   // Keep the loop running flat out for the first few seconds so the controller can
   // settle before the first pointer move. The cost EMA needs ~20 frames to climb, which
@@ -684,7 +735,7 @@ function frame(now) {
     fpsN++;
     if (now - fpsT > 500) {
       fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now;
-      dbgEl.textContent = `fps ${fps}  render ${frameMs.toFixed(1)}ms  scale ${scale.toFixed(2)}  ${innerWidth}x${innerHeight} dpr ${devicePixelRatio}\np ${p.toFixed(3)} seg k=${cam.k} f=${cam.f.toFixed(2)} tr=${cam.tr.toFixed(2)} near=${nearK}\ncam ${camPos.x.toFixed(1)},${camPos.y.toFixed(1)},${camPos.z.toFixed(1)} blobs ${n} cursorR ${cursorR.toFixed(2)} hover ${hoverCard}\nmobile=${mobile} reduce=${reduce} idle=${!interacting} px/ms ${msPerPx ? (1 / msPerPx / 1000).toFixed(0) + 'k' : '—'}\nload ${Object.entries(T.marks).map(([k, v]) => k + '=' + v).join(' ')}\nptr ${pointer.x},${pointer.y} inside=${pointer.inside} type=${pointer.type} age=${Math.round(now - pointer.moved)} fresh=${fresh} hover=${hoverCard} slab2=${uniforms.uSlab.value[2].toArray().map(v => v.toFixed(1)).join(',')}${dbgEl.dataset.err || ''}`;
+      dbgEl.textContent = `fps ${fps}  render ${frameMs.toFixed(1)}ms  scale ${scale.toFixed(2)}  ${innerWidth}x${innerHeight} dpr ${devicePixelRatio}  mat=${quad.material === fullMaterial ? 'full' : 'placeholder'}\np ${p.toFixed(3)} seg k=${cam.k} f=${cam.f.toFixed(2)} tr=${cam.tr.toFixed(2)} near=${nearK}\ncam ${camPos.x.toFixed(1)},${camPos.y.toFixed(1)},${camPos.z.toFixed(1)} blobs ${n} cursorR ${cursorR.toFixed(2)} hover ${hoverCard}\nmobile=${mobile} reduce=${reduce} idle=${!interacting} px/ms ${msPerPx ? (1 / msPerPx / 1000).toFixed(0) + 'k' : '—'}\nload ${Object.entries(T.marks).map(([k, v]) => k + '=' + v).join(' ')}\nptr ${pointer.x},${pointer.y} inside=${pointer.inside} type=${pointer.type} age=${Math.round(now - pointer.moved)} fresh=${fresh} hover=${hoverCard} slab2=${uniforms.uSlab.value[2].toArray().map(v => v.toFixed(1)).join(',')}${dbgEl.dataset.err || ''}`;
     }
   }
   requestAnimationFrame(frame);
