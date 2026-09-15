@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — Aaron Koshy</title>
+<meta name="description" content="What aaronkoshy.com collects, why, how long it is kept, and how to opt out of analytics.">
+<link rel="canonical" href="https://aaronkoshy.com/privacy">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Privacy Policy — Aaron Koshy">
+<meta property="og:description" content="What aaronkoshy.com collects, why, how long it is kept, and how to opt out of analytics.">
+<meta property="og:url" content="https://aaronkoshy.com/privacy">
+<meta name="theme-color" content="#04041a">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="32x32">
+<link rel="icon" href="favicon-16x16.png" type="image/png" sizes="16x16">
+<link rel="icon" href="favicon-32x32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="apple-touch-icon.png" sizes="180x180">
+<link rel="mask-icon" href="safari-pinned-tab.svg" color="#8b3ce0">
+<link rel="manifest" href="site.webmanifest">
+<link rel="stylesheet" href="/pages.css">
+</head>
+<body>
+<div class="bg" aria-hidden="true"><div class="blob b1"></div><div class="blob b2"></div></div>
+<nav class="nav">
+  <a href="/" class="logo">AK</a>
+  <ul><li><a href="/#about">About</a></li><li><a href="/#work">Work</a></li><li><a href="/#contact">Contact</a></li></ul>
+</nav>
+<main>
+  <article class="glass">
+    <span class="tag">Legal</span>
+    <h1>Privacy Policy</h1>
+    <p class="meta">Last updated 14 September 2026 · Applies to aaronkoshy.com and every page under it</p>
+
+    <p>This is a personal website run by Aaron Koshy. It exists to show my work and give you a way to contact me. I collect as little as I can, I do not sell or share data for advertising, and this page explains the rest in plain language.</p>
+
+    <h2>The short version</h2>
+    <ul>
+      <li>No accounts, no sign-ups, no advertising, no data brokers.</li>
+      <li>No tracking cookies. The homepage sets no cookies at all.</li>
+      <li>Visits are measured with self-hosted, cookieless analytics that does not store your IP address. You can switch it off with one click in the notice at the bottom of the homepage.</li>
+      <li>Standard web server logs are kept for 14 days for security and debugging, then deleted.</li>
+      <li>Everything runs on a server I control. No analytics or content is loaded from third-party services.</li>
+    </ul>
+
+    <h2>Who is responsible</h2>
+    <p>Aaron Koshy, the operator of this site, based in the United States. Contact: <a href="mailto:aaronkoshy2@gmail.com">aaronkoshy2@gmail.com</a>.</p>
+
+    <h2>What is collected, and why</h2>
+
+    <h2 style="font-size:1rem;margin-top:18px">1. Server logs</h2>
+    <p>Like almost every website, the web server records each request: your IP address, the page requested, the time, your browser's user-agent string and the referring page if your browser sends one. These logs are used to keep the site running, investigate errors and detect abuse. They are rotated daily and deleted after 14 days. They are not analysed for marketing and are not shared, except as described under "Security" below.</p>
+
+    <h2 style="font-size:1rem;margin-top:18px">2. Analytics</h2>
+    <p>I use <a href="https://swetrix.com" rel="noopener">Swetrix</a>, an open-source analytics tool that I host myself on the same server as this site. It records which pages are viewed, the referring site, your country, browser and device type, screen size, and a small number of interactions I have chosen to measure on the homepage (for example: which project you opened, which section you scrolled to, and clicks on the contact links).</p>
+    <p>Swetrix does not use cookies and does not store your IP address. To tell visits apart within a single day it derives a temporary identifier from your IP address, browser and a daily-rotating salt; the identifier cannot be reversed to your IP address and changes every day, so you cannot be recognised across days. Analytics data is stored on my server only and is not shared with anyone.</p>
+    <p><strong>Opting out:</strong> use the "Don't measure my visits" button in the notice at the bottom of the homepage. This stores a single flag in your browser's local storage (<code>swetrix.disabled</code>) that the homepage's own code checks before sending anything; nothing else about you is recorded. Clearing your browser's site data removes the flag and the notice will show again. Browser "Do Not Track" settings are not read, because browsers treat them inconsistently; the button above is the reliable switch.</p>
+
+    <h2 style="font-size:1rem;margin-top:18px">3. Security systems</h2>
+    <p>The server runs automated defences (<a href="https://www.crowdsec.net" rel="noopener">CrowdSec</a> and fail2ban) that watch the server logs for abusive behaviour such as password guessing, vulnerability scanning or request flooding, and temporarily block the addresses responsible. Blocks last from one hour to a few hours. When CrowdSec blocks an address it also reports that address, the type of abuse and the time to CrowdSec's central service, which aggregates such reports from many servers into a shared blocklist. This affects only addresses that behave abusively; ordinary browsing never triggers it.</p>
+
+    <h2 style="font-size:1rem;margin-top:18px">4. When you email me</h2>
+    <p>If you write to me, I will have your email address and whatever you put in the message. I use it to reply. Email is handled by Gmail (Google), which has its own privacy policy. I keep correspondence for as long as it is useful and delete it when it is not.</p>
+
+    <h2 style="font-size:1rem;margin-top:18px">5. Data stored in your browser</h2>
+    <p>The homepage stores one item in your browser's local storage to remember that you closed the privacy notice, and one more if you opt out of analytics. These are not cookies, are never sent to the server, and are only ever read by this site.</p>
+
+    <h2>The project pages</h2>
+    <p>Several experiments live under this domain. They follow the same rules, with these specifics:</p>
+    <ul>
+      <li><strong>/finance/ (MERIDIAN)</strong> asks you for your own API keys for Finnhub and Alpha Vantage. The keys and cached market data are kept only in your browser's local storage and are sent directly from your browser to those two services; they never pass through my server. Their use of your requests is governed by <a href="https://finnhub.io/privacy" rel="noopener">Finnhub's</a> and <a href="https://www.alphavantage.co/privacy/" rel="noopener">Alpha Vantage's</a> policies.</li>
+      <li><strong>/hairline/</strong> asks for camera access. The video is processed entirely in your browser; no frames are uploaded or stored anywhere.</li>
+      <li><strong>/clutch/</strong> is built with Streamlit, which sets one strictly necessary cookie (<code>_streamlit_xsrf</code>) to protect the app's session against cross-site request forgery. It is not used for tracking and expires when the session ends. Streamlit's own anonymous usage telemetry is turned off, so no data from this page goes to Streamlit, Inc.</li>
+      <li><strong>/football/, /nba/, /city/, /energy/</strong> load data and images from my server. The football and NBA pages display player photos and club or team logos from Wikimedia and ESPN's image servers, so your browser requests those images directly from them.</li>
+    </ul>
+
+    <h2>Where the data lives</h2>
+    <p>The server is a virtual machine rented from OVHcloud in Leesburg, Virginia, United States. If you are in the European Economic Area or the United Kingdom, that means your request data (server logs and the anonymised analytics above) is processed in the United States.</p>
+
+    <h2>Your rights</h2>
+    <p>Depending on where you live you may have the right to ask what data I hold about you, to have it corrected or deleted, to object to its processing, or to complain to a supervisory authority. Write to the address above and I will answer within 30 days. In practice the only data I could link to a named person is email correspondence: server logs identify only an IP address and are gone within 14 days, and the analytics identifiers cannot be traced back to you.</p>
+
+    <h2>Children</h2>
+    <p>This site is not directed at children and I do not knowingly collect information from anyone under 16.</p>
+
+    <h2>Changes</h2>
+    <p>If this policy changes, the date at the top changes with it. Meaningful changes (for example, adding a new tool that processes visitor data) will be called out here for at least 30 days.</p>
+
+    <div class="foot">
+      <a href="/">Home</a>
+      <a href="/terms">Terms of Use</a>
+      <a href="mailto:aaronkoshy2@gmail.com">Contact</a>
+    </div>
+  </article>
+</main>
+</body>
+</html>

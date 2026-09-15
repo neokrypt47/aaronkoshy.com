@@ -1,0 +1,11 @@
+# aaronkoshy.com
+User-agent: *
+Allow: /
+# Internal / non-page endpoints
+Disallow: /api/
+Disallow: /uptime/api/
+Disallow: /nba/api/
+# Staging copy of the homepage (remove this line when /next/ is promoted)
+Disallow: /next/
+
+Sitemap: https://aaronkoshy.com/sitemap.xml

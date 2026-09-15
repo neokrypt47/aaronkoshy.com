@@ -1,0 +1,9 @@
+# aaronkoshy.com
+User-agent: *
+Allow: /
+# Internal / non-page endpoints
+Disallow: /api/
+Disallow: /uptime/api/
+Disallow: /nba/api/
+
+Sitemap: https://aaronkoshy.com/sitemap.xml

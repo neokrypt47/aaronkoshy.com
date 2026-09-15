@@ -1,0 +1,693 @@
+// main.js — liquid-glass homepage: scene state, blob physics, camera, overlays, rendering.
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
+import { VERT, FRAG } from './shaders.js';
+import { TAAPass } from './taa.js';
+import { rasterText, edtSigned, toHalf } from './sdf.js';
+
+// ── Preloader ──
+// Driven by the same marks ?debug reports, so it tracks real work rather than a timer.
+// 'shader' gets the widest slice because compiling this fragment shader is the long pole
+// — seconds warm, and tens of seconds against a cold driver cache.
+const PL = (() => {
+  const el = document.getElementById('preload');
+  if (!el) return { to() {}, done() {} };
+  const bar = el.querySelector('.pl-bar i'), label = el.querySelector('.pl-stage');
+  const STAGES = {
+    modules: [8, 'loading'], fonts: [20, 'fonts'], heroLoRes: [32, 'type'],
+    shader: [82, 'compiling shader'], firstFrame: [100, 'ready'],
+  };
+  return {
+    to(name) {
+      const s = STAGES[name];
+      if (!s) return;
+      bar.style.width = s[0] + '%';
+      label.textContent = s[1];
+      el.classList.toggle('waiting', name === 'heroLoRes');   // the compile is next, and silent
+    },
+    done() {
+      el.classList.remove('waiting');
+      el.classList.add('done');
+      setTimeout(() => el.remove(), 900);
+    },
+  };
+})();
+
+// ── Load-stage timing (shown in ?debug) ──
+const T = { marks: {}, mark(n) { this.marks[n] = Math.round(performance.now()); PL.to(n); } };
+T.mark('modules');
+
+// ── Developer flags ──
+// Only honoured when the page is served from localhost (serve.py). On the public site every
+// flag is inert: no overlay, no console handles, no forced state, so visitors cannot reach or
+// even see the debug surface.
+const DEV = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+const q = DEV ? new URLSearchParams(location.search) : new URLSearchParams();
+const num = (key, lo, hi) => { const v = parseFloat(q.get(key)); return q.has(key) && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : null; };
+const DEBUG = q.has('debug');
+const FIXED_DT = q.has('fixeddt');
+const FORCE_P = num('p', 0, 1);
+const FORCE_SCALE = num('scale', 0.25, 3);
+// Kept as an escape hatch: if temporal upsampling misbehaves on some driver, ?taa=0
+// falls back to rendering the march straight at the output resolution (dev only).
+const TAA = q.get('taa') !== '0';
+
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const mobile = matchMedia('(pointer: coarse)').matches || matchMedia('(max-width: 900px)').matches;
+
+const $ = s => document.querySelector(s);
+const yr = document.getElementById('yr'); if (yr) yr.textContent = String(new Date().getFullYear());
+
+// ── Privacy notice + analytics opt-out ──
+// Swetrix (self-hosted, cookieless) is vendored and loaded by index.html; unlike Umami it has no
+// built-in opt-out flag, so init/trackViews and every custom event are gated here on 'swetrix.disabled'.
+// The notice is informational; "Don't measure my visits" sets that flag. Both choices are remembered.
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+const SWETRIX_PROJECT_ID = 'NdV7OPGwpy7p';
+const SWETRIX_API_URL = 'https://analytics.aaronkoshy.com/backend/log';
+const track = (name, data) => { try { if (!store.get('swetrix.disabled')) window.swetrix?.track({ ev: name, meta: data }); } catch {} };
+try {
+  if (!store.get('swetrix.disabled')) {
+    window.swetrix?.init(SWETRIX_PROJECT_ID, { apiURL: SWETRIX_API_URL });
+    window.swetrix?.trackViews();
+  }
+} catch {}
+(() => {
+  const el = document.getElementById('notice');
+  if (!el || store.get('ak-notice')) return;
+  el.hidden = false;
+  const close = () => { el.hidden = true; store.set('ak-notice', '1'); };
+  document.getElementById('notice-ok')?.addEventListener('click', close);
+  document.getElementById('notice-optout')?.addEventListener('click', () => { store.set('swetrix.disabled', '1'); close(); });
+})();
+document.querySelector('.email')?.addEventListener('click', () => track('contact_email'));
+document.querySelector('.social-github')?.addEventListener('click', () => track('contact_github'));
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+
+// ── Scene definition: four liquid clusters along -z ──
+const GAP = 24;
+const CLUSTERS = [
+  { id: 'hero',    lines: ['AARON', 'KOSHY'], texW: 11.5, texH: 5.75, canvas: [2048, 1024], x: 0,    y: 1.0, core: [7.4, 3.9, 0.85] },
+  { id: 'about',   lines: ['ABOUT'],          texW: 9.5,  texH: 3.56, canvas: [2048, 768], x: -9,   y: 0.4, core: [6.3, 2.8, 0.85] },
+  { id: 'work',    slabs: true,                                                            x: 9,    y: 0.1, core: [8.3, 1.9, 0.6], coreZ: -1.0 },
+  { id: 'contact', lines: ['SAY', 'HELLO'],   texW: 10,   texH: 5,    canvas: [2048, 1024], x: -9,   y: 0.2, core: [6.6, 3.6, 0.85] },
+];
+CLUSTERS.forEach((c, i) => { c.z = -i * GAP; c.center = new THREE.Vector3(c.x, c.y, c.z); c.coreHalf = new THREE.Vector3(...c.core); c.corePos = new THREE.Vector3(c.x, c.y, c.z + (c.coreZ || 0)); });
+const SLAB_X = [-5.6, -1.85, 1.85, 5.6];
+const SLAB_HALF = new THREE.Vector3(1.65, 1.03, 0.11);
+const N = CLUSTERS.length;
+const DW = 0.28;
+const CAM_DIST = mobile ? 21 : 13.5;                      // dwell half-width around each cluster, in segment units
+
+function makeBlobs(c) {
+  const blobs = [];
+  const rnd = mulberry(c.id.length * 7 + 3);
+  if (c.slabs) {
+    for (let i = 0; i < 9; i++) {
+      const x = -7.8 + i * 1.95 + (rnd() - 0.5) * 0.8;
+      const y = (i % 2 ? 1 : -1) * (1.6 + rnd() * 0.7);
+      blobs.push(blob(x, y, -1.0 - rnd() * 0.6, 0.85 + rnd() * 0.5));
+    }
+  } else {
+    const n = c.lines.length > 1 ? 11 : 9;
+    for (let i = 0; i < n; i++) {
+      const f = i / (n - 1);
+      const x = lerp(-c.texW * 0.5, c.texW * 0.5, f) + (rnd() - 0.5) * 1.2;
+      const r = c.texH * (0.20 + rnd() * 0.12);
+      const y = (i % 2 ? 1 : -1) * (c.texH * 0.5 + r * 0.55 + rnd() * 0.4);
+      blobs.push(blob(x, y, (rnd() - 0.5) * 0.9, r));
+    }
+  }
+  for (let i = 0; i < 3; i++) {   // small satellite drips
+    const a = rnd() * Math.PI * 2, r = 7 + rnd() * 2.5;
+    blobs.push(blob(Math.cos(a) * r, Math.sin(a) * r * 0.55, (rnd() - 0.5) * 2, 0.55 + rnd() * 0.45));
+  }
+  for (let i = 0; i < 3; i++) {   // transit droplets: above/below the flight path, never in the sightline
+    const side = (i % 2 ? 1 : -1) * (5 + rnd() * 4);
+    const up = (rnd() > 0.5 ? 1 : -1) * (5 + rnd() * 2.5);
+    const d = blob(side, up, -GAP * (0.3 + i * 0.18), 0.5 + rnd() * 0.5); d.drip = true; blobs.push(d);
+  }
+  return blobs;
+  function blob(x, y, z, r) {
+    const home = new THREE.Vector3(x + c.x, y + c.y, z + c.z);
+    return { home, pos: home.clone(), vel: new THREE.Vector3(), r, ph: rnd() * 6.28, w: 0.35 + rnd() * 0.4 };
+  }
+}
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+CLUSTERS.forEach(c => { c.blobs = makeBlobs(c); });
+
+// ── Pointer ──
+const pointer = { x: innerWidth / 2, y: innerHeight / 2, inside: false, down: false, moved: 0, type: 'mouse' };
+window.addEventListener('pointermove', e => { pointer.x = e.clientX; pointer.y = e.clientY; pointer.inside = true; pointer.moved = performance.now(); pointer.type = e.pointerType; }, { passive: true });
+window.addEventListener('pointerdown', e => { pointer.x = e.clientX; pointer.y = e.clientY; pointer.down = true; pointer.inside = true; pointer.moved = performance.now(); pointer.type = e.pointerType; }, { passive: true });
+window.addEventListener('pointerup', () => { pointer.down = false; }, { passive: true });
+document.addEventListener('mouseleave', () => { pointer.inside = false; });
+
+// custom cursor
+const cdot = $('#cursor-dot'), cring = $('#cursor-ring');
+let ringX = pointer.x, ringY = pointer.y;
+function cursorTick() {
+  if (!cdot) return;
+  ringX = lerp(ringX, pointer.x, 0.22); ringY = lerp(ringY, pointer.y, 0.22);
+  cdot.style.transform = `translate(${pointer.x}px, ${pointer.y}px) translate(-50%,-50%)`;
+  cring.style.transform = `translate(${ringX}px, ${ringY}px) translate(-50%,-50%)`;
+  cdot.style.opacity = cring.style.opacity = pointer.inside && pointer.type !== 'touch' ? '1' : '0';
+}
+document.querySelectorAll('a, button').forEach(el => {
+  el.addEventListener('pointerenter', () => cring?.classList.add('hover'));
+  el.addEventListener('pointerleave', () => cring?.classList.remove('hover'));
+});
+
+// ── Interaction tracking: adaptive scale while interacting, full res at 30 fps when still ──
+let lastInput = performance.now();
+const noteInput = () => { lastInput = performance.now(); };
+['pointermove', 'pointerdown', 'wheel', 'touchmove', 'keydown', 'scroll'].forEach(ev => window.addEventListener(ev, noteInput, { passive: true }));
+
+// ── Scroll → progress ──
+const scroller = $('.scroller');
+let pRaw = 0, p = 0;
+function readScroll() {
+  if (FORCE_P !== null) { pRaw = FORCE_P; return; }
+  const max = Math.max(1, document.documentElement.scrollHeight - innerHeight);
+  pRaw = clamp(scrollY / max, 0, 1);
+}
+window.addEventListener('scroll', readScroll, { passive: true });
+document.querySelectorAll('[data-goto]').forEach(a => a.addEventListener('click', e => {
+  e.preventDefault();
+  const k = +a.dataset.goto;
+  const max = document.documentElement.scrollHeight - innerHeight;
+  scrollTo({ top: (k / (N - 1)) * max, behavior: 'smooth' });
+}));
+
+// section k spans p ∈ [k/(N-1) - 0.5/(N-1), k/(N-1) + 0.5/(N-1)] roughly; camera dwells near each centre.
+function cameraFor(prog) {
+  prog = Number.isFinite(prog) ? clamp(prog, 0, 1) : 0;
+  const seg = prog * (N - 1);            // 0..3, integer at each cluster
+  const k = Math.min(N - 2, Math.floor(seg));
+  const f = seg - k;                     // 0..1 between cluster k and k+1
+  // dwell: hold at k for f<0.3, travel 0.3..0.7, hold at k+1 after
+  const tr = smooth(0.28, 0.72, f);
+  const a = CLUSTERS[k].center, b = CLUSTERS[k + 1].center;
+  const look = new THREE.Vector3().lerpVectors(a, b, Math.min(1, tr * 1.6));   // turn toward the next cluster early
+  const pos = new THREE.Vector3().lerpVectors(a, b, tr).add(new THREE.Vector3(0, 0.9, CAM_DIST));
+  // swing wide toward the next cluster's side and climb, so the current liquid glides past beside/below us
+  const dir = Math.sign(b.x - a.x) || 1;
+  const arc = Math.sin(tr * Math.PI);
+  pos.x += arc * 4.0 * dir; pos.y += arc * 3.0;
+  // presence: the mass we leave melts away, the next one condenses ahead of us
+  const presA = 1 - smooth(0.0, 0.62, tr), presB = smooth(0.32, 0.92, tr);
+  return { pos, look, k, f, tr, near: tr < 0.5 ? k : k + 1, presA, presB };
+}
+
+// ── Renderer ──
+const canvas = $('#scene');
+let renderer, composer, bloom, fxaa, material, uniforms, scene, cam, taa;
+const DPR = Math.min(devicePixelRatio || 1, 2);
+let scale = FORCE_SCALE ?? (mobile ? DPR * 0.55 : DPR * 0.85);   // drawing-buffer px per CSS px
+const targetScale = scale;
+
+function hasWebGL2() { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } }
+
+function sdfToTexture(c, half, w, h, aspect) {
+  const tex = new THREE.DataTexture(half, w, h, THREE.RedFormat, THREE.HalfFloatType);
+  tex.minFilter = tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.flipY = true; tex.needsUpdate = true;
+  c.tex?.dispose();
+  c.tex = tex;
+  c.texSize = new THREE.Vector2(c.texW, c.texW / aspect);
+  if (!c.texReadyAt) c.texReadyAt = performance.now();
+}
+
+// Rasterise on the main thread (needs the page font, ~ms), run the distance transform in a
+// worker. The hero field is awaited before the first frame; the others arrive in the background
+// and their letters condense in when ready.
+async function buildTextures() {
+  try { await document.fonts.load('800 200px Syne'); } catch {}
+  T.mark('fonts');
+  let worker = null;
+  try { worker = new Worker(new URL('./sdf-worker.js', import.meta.url), { type: 'module' }); } catch {}
+  const pending = new Map();
+  if (worker) worker.onmessage = e => { const p = pending.get(e.data.id); if (p) { pending.delete(e.data.id); p(e.data); } };
+  // Instant low-res hero field (~20 ms on the main thread) so the first frame never waits on the worker.
+  const hero = CLUSTERS[0];
+  const lo = rasterText(hero.lines, { w: 512, h: 256 });
+  sdfToTexture(hero, toHalf(edtSigned(lo.mask, lo.w, lo.h)), lo.w, lo.h, lo.aspect);
+  T.mark('heroLoRes');
+  const jobs = CLUSTERS.filter(c => c.lines).map((c, i) => {
+    const r = rasterText(c.lines, { w: c.canvas[0], h: c.canvas[1] });
+    const done = new Promise(res => {
+      if (worker) { pending.set(i, res); worker.postMessage({ id: i, mask: r.mask, w: r.w, h: r.h }, [r.mask.buffer]); }
+      else res({ half: toHalf(edtSigned(r.mask, r.w, r.h)), ms: 0 });
+    }).then(d => { sdfToTexture(c, d.half, r.w, r.h, r.aspect); T.marks['sdf-' + c.id] = Math.round(d.ms); });
+    return { c, done };
+  });
+  Promise.all(jobs.map(j => j.done)).then(() => { T.mark('allSDF'); worker?.terminate(); });
+}
+
+function loadImage(src) {
+  return new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = src; });
+}
+async function buildAtlas(cards) {
+  const W = 1024, H = 640;
+  const cv = document.createElement('canvas'); cv.width = W * 2; cv.height = H * 2;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#0a0e17'; ctx.fillRect(0, 0, cv.width, cv.height);
+  const imgs = await Promise.all(cards.map(c => loadImage(c.img)));
+  imgs.forEach((im, i) => {
+    const ox = (i % 2) * W, oy = Math.floor(i / 2) * H;
+    if (!im) { ctx.fillStyle = '#fff'; ctx.font = '800 72px Syne'; ctx.textAlign = 'center'; ctx.fillText(cards[i].title, ox + W / 2, oy + H / 2); return; }
+    const s = Math.max(W / im.naturalWidth, H / im.naturalHeight);
+    const w = im.naturalWidth * s, h = im.naturalHeight * s;
+    ctx.save(); ctx.beginPath(); ctx.rect(ox, oy, W, H); ctx.clip();
+    ctx.drawImage(im, ox + (W - w) / 2, oy, w, h); ctx.restore();
+  });
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+const cards = [...document.querySelectorAll('#work-list li')].map(li => ({
+  title: li.dataset.title, img: li.dataset.img, href: li.dataset.href, blurb: li.dataset.blurb, tags: li.dataset.tags.split(','), link: li.dataset.link,
+}));
+
+async function init() {
+  if (!hasWebGL2()) { document.body.classList.add('no-gl'); PL.done(); return; }
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  renderer.setPixelRatio(scale);
+  renderer.setSize(innerWidth, innerHeight, false);
+
+  await buildTextures();
+  const placeholder = document.createElement('canvas'); placeholder.width = placeholder.height = 4;
+  const pctx = placeholder.getContext('2d'); pctx.fillStyle = '#0a0e17'; pctx.fillRect(0, 0, 4, 4);
+  const atlas = new THREE.CanvasTexture(placeholder);
+  atlas.colorSpace = THREE.SRGBColorSpace;
+
+  uniforms = {
+    uRes: { value: new THREE.Vector2() }, uTime: { value: 0 },
+    uCamPos: { value: new THREE.Vector3() }, uCamMat: { value: new THREE.Matrix3() }, uTanFov: { value: Math.tan(THREE.MathUtils.degToRad(mobile ? 34 : 26)) },
+    uBlobs: { value: Array.from({ length: 36 }, () => new THREE.Vector4(0, 0, 0, 0)) }, uNB: { value: 0 },
+    uCursor: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uCoreA: { value: new THREE.Vector3() }, uCoreAHalf: { value: new THREE.Vector3(1, 1, 1) }, uCoreAOn: { value: 0 },
+    uCoreB: { value: new THREE.Vector3() }, uCoreBHalf: { value: new THREE.Vector3(1, 1, 1) }, uCoreBOn: { value: 0 },
+    uBoundA: { value: new THREE.Vector4(0, 0, 0, 0) }, uBoundB: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uTexA: { value: CLUSTERS[0].tex }, uTextAPos: { value: new THREE.Vector3() }, uTextASize: { value: new THREE.Vector2(1, 1) }, uTextAOn: { value: 0 }, uTextAFade: { value: 0 },
+    uTexB: { value: CLUSTERS[1].tex }, uTextBPos: { value: new THREE.Vector3() }, uTextBSize: { value: new THREE.Vector2(1, 1) }, uTextBOn: { value: 0 }, uTextBFade: { value: 0 },
+    uTextDepth: { value: 0.42 },
+    uSlab: { value: SLAB_X.map(x => new THREE.Vector4(CLUSTERS[2].x + x, CLUSTERS[2].y, CLUSTERS[2].z + 0.55, 0)) }, uSlabHalf: { value: SLAB_HALF }, uSlabOn: { value: 0 }, uSlabScale: { value: 1 }, uAtlas: { value: atlas },
+    uIor: { value: 1.27 }, uAbsorb: { value: new THREE.Vector3(0.10, 0.17, 0.025) }, uDisp: { value: mobile ? 0 : 0.012 },
+    uSteps: { value: mobile ? 64 : 96 }, uISteps: { value: mobile ? 36 : 56 },
+    uJitter: { value: new THREE.Vector2() },
+  };
+  material = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms, glslVersion: THREE.GLSL3, depthTest: false, depthWrite: false });
+  scene = new THREE.Scene();
+  // The vertex shader writes clip space directly, so the mesh's real transform says
+  // nothing about where it lands — leave it out of the frustum test or it can be culled.
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+  quad.frustumCulled = false;
+  scene.add(quad);
+  cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+  composer = new EffectComposer(renderer);
+  // TAAPass renders the scene itself, at half linear resolution, and resolves to full —
+  // so it stands in for RenderPass rather than following it.
+  if (TAA) { taa = new TAAPass(scene, cam, uniforms, 0.5); composer.addPass(taa); }
+  else composer.addPass(new RenderPass(scene, cam));
+  bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.3, 0.3, 1.1);
+  composer.addPass(bloom);
+  composer.addPass(new OutputPass());
+  fxaa = new ShaderPass(FXAAShader);
+  composer.addPass(fxaa);
+  applySize();
+  await renderer.compileAsync(scene, cam);
+  T.mark('shader');
+  window.addEventListener('resize', applySize);
+
+  readScroll();
+  p = pRaw;
+  requestAnimationFrame(frame);
+  // Screenshots are only needed for the Work section: load them after the scene is up.
+  setTimeout(() => buildAtlas(cards).then(tex => { uniforms.uAtlas.value.dispose(); uniforms.uAtlas.value = tex; T.mark('atlas'); }), 250);
+}
+
+// Every target has to land on whole pixels. composer.setSize() multiplies by the pixel
+// ratio internally, so a fractional scale (1.5 dpr * 0.85 = 1.275) gave render targets
+// sized 1305.56 x 712.47 against a 1305 x 712 canvas — a size mismatch on every pass.
+// Drive the composer at ratio 1 with the renderer's real integer drawing-buffer size.
+function applySize() {
+  renderer.setPixelRatio(scale);
+  renderer.setSize(innerWidth, innerHeight, false);
+  const w = renderer.domElement.width, h = renderer.domElement.height;
+  composer.setPixelRatio(1);
+  composer.setSize(w, h);
+  uniforms.uRes.value.set(w, h);
+  if (fxaa) fxaa.material.uniforms.resolution.value.set(1 / w, 1 / h);
+}
+
+// ── Physics ──
+const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3();
+const cursorWorld = new THREE.Vector3(); let cursorR = 0;
+function stepBlobs(c, dt, t, cur, curOn) {
+  const B = c.blobs;
+  for (let i = 0; i < B.length; i++) {
+    const b = B[i];
+    // breathing home
+    tmp.set(Math.sin(t * b.w + b.ph) * 0.35, Math.cos(t * b.w * 0.8 + b.ph * 1.7) * 0.3, Math.sin(t * b.w * 0.6 + b.ph) * 0.25).add(b.home);
+    tmp.sub(b.pos).multiplyScalar(3.2);                 // spring
+    tmp.addScaledVector(b.vel, -2.4);                    // damping
+    if (curOn) {
+      tmp2.subVectors(b.pos, cur);
+      const d = tmp2.length(), reach = b.r + cursorR + 1.4;
+      if (d < reach && d > 1e-4) tmp.addScaledVector(tmp2.normalize(), (reach - d) * 14);
+    }
+    for (let j = 0; j < B.length; j++) {
+      if (j === i) continue;
+      const o = B[j];
+      tmp2.subVectors(b.pos, o.pos);
+      const d = tmp2.length(), minD = (b.r + o.r) * 0.72;
+      if (d < minD && d > 1e-4) tmp.addScaledVector(tmp2.normalize(), (minD - d) * 7);
+    }
+    b.vel.addScaledVector(tmp, dt);
+    b.pos.addScaledVector(b.vel, dt);
+  }
+}
+function burst(c, center, strength) {
+  for (const b of c.blobs) {
+    tmp.subVectors(b.pos, center);
+    const d = tmp.length();
+    if (d > 9) continue;
+    b.vel.addScaledVector(tmp.normalize(), strength * (1 - d / 9) * (0.6 + Math.random() * 0.8));
+    b.vel.z += (Math.random() - 0.5) * strength * 0.4;
+  }
+}
+
+// ── Ray helpers ──
+const camPos = new THREE.Vector3(), camLook = new THREE.Vector3(), camMat = new THREE.Matrix3();
+const fwd = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), up2 = new THREE.Vector3();
+function updateCamMat() {
+  fwd.subVectors(camLook, camPos).normalize();
+  right.crossVectors(fwd, up).normalize();
+  up2.crossVectors(right, fwd);
+  camMat.set(right.x, up2.x, -fwd.x, right.y, up2.y, -fwd.y, right.z, up2.z, -fwd.z);
+}
+const rd = new THREE.Vector3();
+function pointerRay(out) {
+  const ux = (pointer.x * 2 - innerWidth) / innerHeight, uy = -(pointer.y * 2 - innerHeight) / innerHeight;
+  out.set(ux * uniforms.uTanFov.value, uy * uniforms.uTanFov.value, -1).applyMatrix3(camMat).normalize();
+  return out;
+}
+function rayPlaneZ(z, out) {
+  pointerRay(rd);
+  const t = (z - camPos.z) / rd.z;
+  if (t <= 0) return false;
+  out.copy(camPos).addScaledVector(rd, t);
+  return true;
+}
+function slabHit() {
+  pointerRay(rd);
+  let best = -1, bestT = 1e9;
+  SLAB_X.forEach((x, i) => {
+    const c = uniforms.uSlab.value[i];
+    let tmin = -1e9, tmax = 1e9;
+    for (const [o, d, cc, h] of [[camPos.x, rd.x, c.x, SLAB_HALF.x], [camPos.y, rd.y, c.y, SLAB_HALF.y], [camPos.z, rd.z, c.z, SLAB_HALF.z + 0.4]]) {
+      const inv = 1 / d; let t0 = (cc - h - o) * inv, t1 = (cc + h - o) * inv;
+      if (t0 > t1) [t0, t1] = [t1, t0];
+      tmin = Math.max(tmin, t0); tmax = Math.min(tmax, t1);
+    }
+    if (tmax >= Math.max(tmin, 0) && tmin < bestT) { bestT = tmin; best = i; }
+  });
+  return best;
+}
+
+// ── Overlays ──
+const overlays = [...document.querySelectorAll('[data-range]')].map(el => {
+  const [a, b, c, d] = el.dataset.range.split(',').map(Number);
+  return { el, a, b, c, d };
+});
+function updateOverlays(prog) {
+  for (const o of overlays) {
+    const v = smooth(o.a, o.b, prog) * (1 - smooth(o.c, o.d, prog));
+    o.el.style.opacity = v.toFixed(3);
+    o.el.style.setProperty('--reveal-y', `${((1 - v) * 18).toFixed(1)}px`);
+    o.el.style.pointerEvents = v > 0.5 ? 'auto' : 'none';
+    o.el.setAttribute('aria-hidden', v < 0.5);
+  }
+}
+const workDetail = $('#work-detail');
+let shownCard = -1, hoverCard = -1, activeCard = 0;
+function showCard(i) {
+  if (i === shownCard) return;
+  shownCard = i;
+  const c = cards[i];
+  workDetail.classList.add('swap');
+  setTimeout(() => {
+    workDetail.innerHTML = `<div class="num">0${i + 1}</div><h3>${c.title}</h3><p>${c.blurb}</p>
+      <div class="tags">${c.tags.map(t => `<span>${t}</span>`).join('')}</div>
+      <a href="${c.href}" target="_blank" rel="noopener" class="project-link">${c.link}</a>
+      <div class="dots">${cards.map((_, k) => `<button type="button" aria-label="${cards[k].title}" aria-selected="${k === i}" data-i="${k}"></button>`).join('')}</div>`;
+    workDetail.querySelector('.project-link')?.addEventListener('click', () => track('project_open', { project: c.title, via: 'link' }));
+    workDetail.querySelectorAll('button').forEach(b => b.addEventListener('click', () => gotoCard(+b.dataset.i)));
+    workDetail.querySelectorAll('a, button').forEach(el => {
+      el.addEventListener('pointerenter', () => cring?.classList.add('hover'));
+      el.addEventListener('pointerleave', () => cring?.classList.remove('hover'));
+    });
+    workDetail.classList.remove('swap');
+  }, 140);
+}
+function gotoCard(i) {
+  const max = document.documentElement.scrollHeight - innerHeight;
+  const k = 2;                                                       // work cluster index
+  // inside the work dwell (f between 0.72 of seg 1..2 and 0.28 of seg 2..3), spread the 4 cards
+  const pStart = (k - DW) / (N - 1), pEnd = (k + DW) / (N - 1);
+  scrollTo({ top: lerp(pStart, pEnd, (i + 0.5) / cards.length) * max, behavior: 'smooth' });
+}
+canvas.addEventListener('click', e => {
+  pointer.x = e.clientX; pointer.y = e.clientY;
+  const hit = uniforms?.uSlabOn.value ? slabHit() : -1;            // works for taps too
+  if (hit >= 0) { track('project_open', { project: cards[hit].title, via: 'panel' }); window.open(cards[hit].href, '_blank', 'noopener'); return; }
+  const c = CLUSTERS[nearK];
+  if (rayPlaneZ(c.z, tmp2)) { burst(c, tmp2, 9); track('liquid_burst', { section: c.id }); }
+});
+window.addEventListener('keydown', e => {
+  if (nearK !== 2) return;
+  if (e.key === 'ArrowRight') gotoCard(Math.min(3, activeCard + 1));
+  if (e.key === 'ArrowLeft') gotoCard(Math.max(0, activeCard - 1));
+});
+
+// ── Debug overlay ──
+let dbgEl = null, fps = 0, fpsN = 0, fpsT = 0, frameMs = 16;
+if (DEBUG) {
+  dbgEl = document.createElement('pre'); dbgEl.id = 'dbg';
+  document.body.appendChild(dbgEl);
+  window.addEventListener('error', e => { dbgEl.dataset.err = (dbgEl.dataset.err || '') + '\n' + e.message; });
+}
+
+// ── Adaptive resolution ──
+// The scene is purely fragment-bound, so frame cost is very close to linear in
+// drawing-buffer pixels. So instead of nudging the scale by 10% and waiting a whole
+// second to see what happened, measure ms-per-pixel and solve for the scale that fits
+// the budget. That converges in a step or two rather than tens of seconds.
+//
+// The cost model is only fed while interacting, where every rAF callback renders and
+// the interval is an honest measure of GPU cost. While idle we cap at 30 fps, which
+// makes the interval meaningless — so we hold the scale we learned rather than
+// throwing it away and starting over on the next pointer move.
+const BUDGET_MS = 33;                              // target frame time while interacting
+const SCALE_FLOOR = Math.min(0.5, targetScale);    // below this the letters go soft
+const ADAPT_EVERY = 300;                           // ms between adjustments
+let msPerPx = 0, lastAdapt = 0, renderedRun = 0, adapts = 0;
+
+// Console handles for profiling. Behind ?debug so a normal page load exposes no globals
+// and hands out no references to the renderer. Note that the ?debug overlay itself costs
+// enough per frame to shift what it reports, so read these rather than the overlay when
+// the number matters.
+if (DEBUG) {
+  window.__gl = () => ({ renderer, composer, scene, cam, uniforms, material, taa });
+  window.__perf = () => ({
+    scale, targetScale, floor: SCALE_FLOOR, frameMs, msPerPx, adapts,
+    passes: composer?.passes.map(p => p.constructor.name),
+    canvas: renderer && [renderer.domElement.width, renderer.domElement.height],
+  });
+}
+
+function adaptScale() {
+  adapts++;
+  const pixels = innerWidth * innerHeight * scale * scale;
+  // At or near vsync the interval hides the real cost, so we can't measure — but we do
+  // know there is headroom, so ease back toward full resolution.
+  if (frameMs < 17.5) {
+    if (scale < targetScale) { scale = Math.min(targetScale, scale * 1.12); applySize(); }
+    return;
+  }
+  msPerPx = msPerPx ? lerp(msPerPx, frameMs / pixels, 0.3) : frameMs / pixels;
+  let want = Math.sqrt((BUDGET_MS / msPerPx) / (innerWidth * innerHeight));
+  want = clamp(want, SCALE_FLOOR, targetScale);
+  want = clamp(want, scale * 0.6, scale * 1.4);                 // damp: one bad frame can't slam it
+  if (Math.abs(want - scale) > scale * 0.04) { scale = want; applySize(); }
+}
+
+// ── Frame ──
+let last = performance.now(), tSim = 0, nearK = 0, frames = 0, lastRender = 0;
+const seenSection = [];
+function frame(now) {
+  const realMs = now - last;
+  let dt = FIXED_DT ? 1 / 60 : Math.min(realMs / 1000, 0.05);
+  last = now;
+  tSim += dt;
+  frames++;
+  const t = tSim;
+
+  // Keep the loop running flat out for the first few seconds so the controller can
+  // settle before the first pointer move. The cost EMA needs ~20 frames to climb, which
+  // on a slow GPU is longer than the 1.2 s idle timeout — without this the page loads at
+  // full resolution and stays there, sluggish, until the visitor happens to touch it.
+  const interacting = now - lastInput < 1200 || now < 5000 || FORCE_P !== null;
+
+  // 30 fps cap while the page is still. Skipped callbacks never reach the cost model.
+  if (!interacting && !FORCE_SCALE) {
+    if (now - lastRender < 31) { requestAnimationFrame(frame); return; }
+    renderedRun = 0;
+  } else {
+    // Measure whenever the loop is running flat out, even under ?scale= — the forced
+    // case is exactly when you want to read the cost of a scale you picked by hand.
+    if (frames > 5 && renderedRun > 0) frameMs = lerp(frameMs, realMs, 0.15);   // GPU-bound cost shows up as rAF interval
+    renderedRun++;
+    if (!FORCE_SCALE && now - lastAdapt > ADAPT_EVERY && renderedRun > 3) { adaptScale(); lastAdapt = now; }
+  }
+  lastRender = now;
+
+  readScroll();
+  p = reduce ? pRaw : lerp(p, pRaw, Math.min(1, dt * 7));
+  const cam = cameraFor(p);
+  nearK = cam.near;
+
+  // work section: pan across the slabs
+  {
+    let w = 0;
+    if (cam.near === 2) { const off = cam.k === 2 ? cam.tr : 1 - cam.tr; w = 1 - smooth(0, 0.5, off); }
+    const pStart = (2 - DW) / (N - 1), pEnd = (2 + DW) / (N - 1);
+    const s = clamp((p - pStart) / (pEnd - pStart), 0, 1);
+    activeCard = Math.min(cards.length - 1, Math.floor(s * cards.length));
+    const cx = SLAB_X[activeCard] * 0.55;
+    cam.pos.x += cx * w; cam.look.x += cx * 0.9 * w;
+    // On a portrait/narrow viewport, CAM_DIST is tuned for the wide fan (all four slabs at
+    // once, which is the point on a landscape screen) — but the same distance also fits the
+    // full ~14.5-unit slab span into a narrow vertical FOV slice, shrinking every card into an
+    // illegible row. Below aspect 0.9, pull the camera in toward just the active slab instead.
+    const aspect = innerWidth / innerHeight;
+    if (aspect < 0.9) {
+      const desiredWidth = 4.4;   // active slab (3.3 wide) plus a little breathing room each side
+      const workDist = clamp(desiredWidth / (2 * uniforms.uTanFov.value * aspect), 3, CAM_DIST);
+      cam.pos.z -= (CAM_DIST - workDist) * w;
+    }
+  }
+  // pointer parallax
+  const px = pointer.inside ? (pointer.x / innerWidth - 0.5) : 0, py = pointer.inside ? (pointer.y / innerHeight - 0.5) : 0;
+  const ck = FORCE_P !== null ? 1 : Math.min(1, dt * 6);
+  camPos.lerp(cam.pos.add(new THREE.Vector3(px * 0.9, -py * 0.5, 0)), ck);
+  camLook.lerp(cam.look, ck);
+  camPos.y += Math.sin(t * 0.5) * 0.04;
+  updateCamMat();
+
+  // cursor droplet on the nearest cluster's plane
+  const c = CLUSTERS[nearK];
+  const fresh = pointer.inside && (pointer.type !== 'touch' || pointer.down) && now - pointer.moved < 4000;
+  const curOn = fresh && rayPlaneZ(c.z + 1.2, tmp);
+  cursorR = lerp(cursorR, curOn ? 0.62 : 0, Math.min(1, dt * 8));
+  if (curOn) cursorWorld.lerp(tmp, Math.min(1, dt * 14));
+  uniforms.uCursor.value.set(cursorWorld.x, cursorWorld.y, cursorWorld.z, cursorR > 0.02 ? cursorR : 0);
+
+  // physics on the two clusters around the camera
+  const active = [cam.k, cam.k + 1];
+  if (!reduce) for (const k of active) stepBlobs(CLUSTERS[k], dt, t, cursorWorld, curOn && k === nearK);
+
+  // upload blobs
+  // Every blob costs a sqrt and a smin at each of the ~10 sdLiquid evaluations a pixel
+  // does, whether or not it is anywhere near the screen — measured at roughly 1.9 ms per
+  // blob per frame at scale 0.5. So drop the ones that cannot touch a visible pixel.
+  // A blob reaches BLOB_K (1.3) beyond its radius through the smooth-min, so that is the
+  // margin; the test is exact, not a heuristic, and changes nothing on screen.
+  let n = 0;
+  const pres = [cam.presA, cam.presB];
+  const tx = uniforms.uTanFov.value * (innerWidth / innerHeight), ty = uniforms.uTanFov.value;
+  const nx = 1 / Math.hypot(1, tx), ny = 1 / Math.hypot(1, ty);
+  active.forEach((k, ai) => {
+    for (const b of CLUSTERS[k].blobs) {
+      if (n >= 36) break;
+      const r = b.drip ? b.r : b.r * pres[ai];
+      if (r <= 0.02) continue;
+      tmp2.subVectors(b.pos, camPos);
+      const zc = tmp2.dot(fwd), xc = tmp2.dot(right), yc = tmp2.dot(up2), R = r + 1.3;
+      if (-zc > R || (xc - zc * tx) * nx > R || (-xc - zc * tx) * nx > R ||
+          (yc - zc * ty) * ny > R || (-yc - zc * ty) * ny > R) continue;
+      uniforms.uBlobs.value[n++].set(b.pos.x, b.pos.y, b.pos.z, r);
+    }
+  });
+  uniforms.uNB.value = n;
+
+  // texts
+  const [A, B] = active.map(k => CLUSTERS[k]);
+  uniforms.uCoreAOn.value = cam.presA > 0.02 ? 1 : 0; uniforms.uCoreAHalf.value.copy(A.coreHalf).multiplyScalar(cam.presA);
+  const readyFade = c => c.texReadyAt ? 2.5 * (1 - Math.min(1, (performance.now() - c.texReadyAt) / 900)) : 2.5;
+  uniforms.uTextAFade.value = (1 - cam.presA) * 2.5 + readyFade(A); uniforms.uTextBFade.value = (1 - cam.presB) * 2.5 + readyFade(B);
+  uniforms.uSlabScale.value = Math.max(0.001, active[0] === 2 ? cam.presA : cam.presB);
+  uniforms.uCoreA.value.copy(A.corePos).add(tmp.set(Math.sin(t * 0.37) * 0.25, Math.cos(t * 0.29) * 0.2, 0));
+  uniforms.uCoreBOn.value = cam.presB > 0.02 ? 1 : 0; uniforms.uCoreBHalf.value.copy(B.coreHalf).multiplyScalar(cam.presB);
+  uniforms.uCoreB.value.copy(B.corePos).add(tmp.set(Math.cos(t * 0.33) * 0.25, Math.sin(t * 0.27) * 0.2, 0));
+  uniforms.uTextAOn.value = A.tex ? 1 : 0;
+  if (A.tex) { uniforms.uTexA.value = A.tex; uniforms.uTextAPos.value.copy(A.center); uniforms.uTextASize.value.copy(A.texSize); }
+  uniforms.uTextBOn.value = B.tex ? 1 : 0;
+  if (B.tex) { uniforms.uTexB.value = B.tex; uniforms.uTextBPos.value.copy(B.center); uniforms.uTextBSize.value.copy(B.texSize); }
+  uniforms.uSlabOn.value = active.includes(2) ? 1 : 0;
+  active.forEach((k, ai) => {
+    const c = CLUSTERS[k], pr = pres[ai];
+    const half = c.coreHalf;
+    let r = Math.hypot(half.x, half.y, half.z) * pr + 1.2;
+    if (c.slabs) r = Math.max(r, Math.hypot(SLAB_X[3] + SLAB_HALF.x, SLAB_HALF.y, 1) * Math.max(pr, 0.001) + 0.6);
+    for (const b of c.blobs) { const br = b.drip ? b.r : b.r * pr; if (br > 0.02) r = Math.max(r, b.pos.distanceTo(c.corePos) + br + 0.4); }
+    (ai === 0 ? uniforms.uBoundA : uniforms.uBoundB).value.set(c.corePos.x, c.corePos.y, c.corePos.z, r);
+  });
+
+  // slab hover
+  hoverCard = uniforms.uSlabOn.value && pointer.inside && pointer.type !== 'touch' ? slabHit() : -1;
+  uniforms.uSlab.value.forEach((v, i) => { v.w = lerp(v.w, i === hoverCard ? 1 : 0, Math.min(1, dt * 10)); v.y = CLUSTERS[2].y + Math.sin(t * 0.8 + i) * 0.12; });
+  canvas.style.cursor = hoverCard >= 0 ? 'pointer' : '';
+  cring?.classList.toggle('hover', hoverCard >= 0);
+  if (nearK === 2) showCard(hoverCard >= 0 ? hoverCard : activeCard);
+  if (!seenSection[nearK] && p > 0.02) { seenSection[nearK] = true; track('section', { name: CLUSTERS[nearK].id }); }
+
+  uniforms.uTime.value = t;
+  uniforms.uCamPos.value.copy(camPos);
+  uniforms.uCamMat.value.copy(camMat);
+  taa?.setCamera(camPos, right, up2, fwd, uniforms.uTanFov.value, innerWidth / innerHeight);
+
+  composer.render();
+
+  updateOverlays(p);
+  cursorTick();
+  if (frames === 2) { document.body.classList.add('ready'); T.mark('firstFrame'); PL.done(); }
+
+  // Rebuild at 2 Hz, not every frame: this string costs ~30 ms a frame to compose and
+  // lay out, which is more than the scene does. Updating it per frame made ?debug report
+  // its own cost as the scene's.
+  if (dbgEl) {
+    fpsN++;
+    if (now - fpsT > 500) {
+      fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now;
+      dbgEl.textContent = `fps ${fps}  render ${frameMs.toFixed(1)}ms  scale ${scale.toFixed(2)}  ${innerWidth}x${innerHeight} dpr ${devicePixelRatio}\np ${p.toFixed(3)} seg k=${cam.k} f=${cam.f.toFixed(2)} tr=${cam.tr.toFixed(2)} near=${nearK}\ncam ${camPos.x.toFixed(1)},${camPos.y.toFixed(1)},${camPos.z.toFixed(1)} blobs ${n} cursorR ${cursorR.toFixed(2)} hover ${hoverCard}\nmobile=${mobile} reduce=${reduce} idle=${!interacting} px/ms ${msPerPx ? (1 / msPerPx / 1000).toFixed(0) + 'k' : '—'}\nload ${Object.entries(T.marks).map(([k, v]) => k + '=' + v).join(' ')}\nptr ${pointer.x},${pointer.y} inside=${pointer.inside} type=${pointer.type} age=${Math.round(now - pointer.moved)} fresh=${fresh} hover=${hoverCard} slab2=${uniforms.uSlab.value[2].toArray().map(v => v.toFixed(1)).join(',')}${dbgEl.dataset.err || ''}`;
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+init().catch(err => { console.error(err); document.body.classList.add('no-gl'); PL.done(); if (dbgEl) dbgEl.textContent = 'INIT FAILED ' + err.message; });

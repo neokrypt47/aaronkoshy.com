@@ -2,194 +2,145 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="Aaron Koshy — Software Engineer">
-<title>Aaron Koshy</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2350008c'/><text x='50' y='68' font-size='50' font-family='Arial,sans-serif' font-weight='700' fill='white' text-anchor='middle'>AK</text></svg>">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Aaron Koshy — Software Engineer</title>
+<meta name="description" content="Software engineer building data dashboards, sports analytics and browser experiments. Portfolio, projects and contact.">
+<link rel="canonical" href="https://aaronkoshy.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Aaron Koshy">
+<meta property="og:title" content="Aaron Koshy — Software Engineer">
+<meta property="og:description" content="Software engineer building data dashboards, sports analytics and browser experiments. Portfolio, projects and contact.">
+<meta property="og:url" content="https://aaronkoshy.com/">
+<meta property="og:image" content="https://aaronkoshy.com/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The name Aaron Koshy glowing inside a block of purple liquid glass">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Aaron Koshy — Software Engineer">
+<meta name="twitter:description" content="Software engineer building data dashboards, sports analytics and browser experiments.">
+<meta name="twitter:image" content="https://aaronkoshy.com/og.png">
+<meta name="theme-color" content="#04041a">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="32x32">
+<link rel="icon" href="favicon-16x16.png" type="image/png" sizes="16x16">
+<link rel="icon" href="favicon-32x32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="apple-touch-icon.png" sizes="180x180">
+<link rel="mask-icon" href="safari-pinned-tab.svg" color="#8b3ce0">
+<link rel="manifest" href="site.webmanifest">
 <link rel="stylesheet" href="style.css">
-<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<link rel="preload" href="fonts/Syne-800-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/PlusJakartaSans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<!-- The import map must be parsed before ANY module resolution starts, and modulepreload
+     starts it — so this has to stay above the preloads below, not after them. -->
 <script type="importmap">
 {
   "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
-    "@dimforge/rapier3d-compat": "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.20.0/+esm"
+    "three": "./vendor/three/build/three.module.min.js",
+    "three/addons/": "./vendor/three/examples/jsm/"
   }
 }
 </script>
+<link rel="modulepreload" href="vendor/three/build/three.module.min.js">
+<link rel="modulepreload" href="vendor/three/build/three.core.min.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/postprocessing/EffectComposer.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/postprocessing/RenderPass.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/postprocessing/UnrealBloomPass.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/postprocessing/OutputPass.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/postprocessing/ShaderPass.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/postprocessing/Pass.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/postprocessing/MaskPass.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/shaders/FXAAShader.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/shaders/CopyShader.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/shaders/LuminosityHighPassShader.js">
+<link rel="modulepreload" href="vendor/three/examples/jsm/shaders/OutputShader.js">
+<link rel="modulepreload" href="js/main.js">
+<link rel="modulepreload" href="js/shaders.js">
+<link rel="modulepreload" href="js/sdf.js">
+<script defer src="vendor/swetrix/swetrix.js"></script>
 </head>
 <body>
 
-<!-- Cursor glow -->
-<div id="cursor-glow"></div>
-<div id="cursor-dot"></div>
-<div id="cursor-ring"></div>
-
-<!-- Noise overlay -->
-<div class="noise"></div>
-
-
-<!-- Animated gradient background -->
-<div class="gradient-bg">
-  <svg xmlns="http://www.w3.org/2000/svg"><defs><filter id="goo"><feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur"/><feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -8" result="goo"/><feBlend in="SourceGraphic" in2="goo"/></filter></defs></svg>
-  <div class="gradients-container">
-    <div class="g1"></div><div class="g2"></div><div class="g3"></div>
-    <div class="g4"></div><div class="g5"></div>
-    <div class="interactive"></div>
+<!-- Painted from markup, so it is on screen in the first paint rather than waiting for
+     the module graph. main.js advances it through the real load stages. -->
+<div id="preload" role="status" aria-live="polite">
+  <div class="pl-inner">
+    <div class="pl-name">AARON KOSHY</div>
+    <div class="pl-bar"><i></i></div>
+    <div class="pl-stage">loading</div>
   </div>
 </div>
 
-<!-- WebGL layers: fluid background + shared three.js canvas (hero letters, project deck) -->
-<canvas id="fluid" aria-hidden="true"></canvas>
-<canvas id="gl" aria-hidden="true"></canvas>
+<canvas id="scene" aria-hidden="true"></canvas>
+<div class="scroller" aria-hidden="true"></div>
 
-<!-- Nav -->
-<nav class="navbar">
-  <a href="#home" class="nav-logo">AK</a>
-  <ul class="nav-menu">
-    <li><a href="#about" class="nav-link">About</a></li>
-    <li><a href="#projects" class="nav-link">Projects</a></li>
-    <li><a href="#contact" class="nav-link">Contact</a></li>
+<div id="cursor-dot"></div>
+<div id="cursor-ring"></div>
+
+<nav class="nav">
+  <a href="#" class="logo" data-goto="0">AK</a>
+  <ul>
+    <li><a href="#about" data-goto="1">About</a></li>
+    <li><a href="#work" data-goto="2">Work</a></li>
+    <li><a href="#contact" data-goto="3">Contact</a></li>
   </ul>
-  <button class="nav-toggle" aria-label="menu">
-    <span></span><span></span><span></span>
-  </button>
 </nav>
 
-<!-- Hero -->
-<section id="home" class="hero">
-  <div class="hero-content">
-    <div class="hero-label reveal">Software Engineer</div>
-    <h1 class="hero-name reveal">
-      <span class="line"><span class="ch">A</span><span class="ch">a</span><span class="ch">r</span><span class="ch">o</span><span class="ch">n</span></span>
-      <span class="line"><span class="ch">K</span><span class="ch">o</span><span class="ch">s</span><span class="ch">h</span><span class="ch">y</span></span>
-    </h1>
-    <p class="hero-sub reveal">I build things for the web — data dashboards,<br>analytics tools, and whatever catches my curiosity.</p>
-    <div class="hero-actions reveal">
-      <a href="#projects" class="pill-btn">View Projects</a>
-      <a href="#contact" class="pill-btn ghost">Say Hello</a>
-    </div>
-  </div>
+<h1 class="sr-only">Aaron Koshy — Software Engineer</h1>
 
-
-  <div class="scroll-hint">
-    <div class="scroll-dot"></div>
-  </div>
+<!-- Overlays: data-range = fade-in start, fade-in end, fade-out start, fade-out end (scroll progress 0..1) -->
+<section class="ov ov-hero" data-range="-1,0,0.06,0.16" id="home">
+  <span class="tag">Software Engineer</span>
+  <p>I build things for the web — data dashboards, analytics tools,<br>and whatever catches my curiosity.</p>
+  <div class="hint">Scroll to dive in · click the liquid</div>
 </section>
 
-<!-- About -->
-<section id="about" class="about-section">
-  <div class="about-inner">
-    <div class="about-left reveal">
-      <span class="section-tag">About me</span>
-      <h2>Building things<br><em>that actually work</em></h2>
-    </div>
-    <div class="about-right">
-      <p class="reveal">I'm a software engineer who cares about the details. I like turning raw data into interfaces people actually want to use — whether that's financial dashboards, sports analytics, or infrastructure tooling.</p>
-      <p class="reveal">I run my own server stack — Docker, Traefik, Let's Encrypt — and a growing collection of side projects I built because I wanted them to exist.</p>
-      <div class="chips reveal">
-        <span>Python</span><span>JavaScript</span><span>Docker</span><span>FastAPI</span><span>Data viz</span><span>Self-hosting</span>
-      </div>
-    </div>
-  </div>
+<section class="ov ov-about" data-range="0.24,0.31,0.40,0.46" id="about">
+  <span class="tag">About me</span>
+  <h2>Building things<br><em>that actually work</em></h2>
+  <p>I'm a software engineer who cares about the details. I like turning raw data into interfaces people actually want to use — financial dashboards, sports analytics, infrastructure tooling.</p>
+  <p>I run my own server stack and a growing collection of side projects I built because I wanted them to exist.</p>
+  <div class="chips"><span>Python</span><span>JavaScript</span><span>Docker</span><span>FastAPI</span><span>WebGL</span><span>Self-hosting</span></div>
 </section>
 
-<!-- Projects -->
-<section id="projects" class="projects-section">
-  <div class="projects-inner">
-    <div class="projects-header reveal">
-      <span class="section-tag">Projects</span>
-      <h2>Things I've built</h2>
-    </div>
-
-    <div class="deck-wrap">
-      <div id="deck-stage" aria-hidden="true"></div>
-      <aside id="deck-detail" hidden></aside>
-    </div>
-
-    <div class="projects-grid">
-
-      <a href="/football/" target="_blank" class="project-card reveal" data-index="01">
-        <div class="card-screen">
-          <img src="/screenshots/football.png" alt="Football Stats" loading="lazy">
-          <div class="card-screen-shine"></div>
-        </div>
-        <div class="card-body">
-          <div class="card-num">01</div>
-          <h3>Football Stats</h3>
-          <p>Advanced soccer analytics — xG, shot maps, and league tables for the Premier League and La Liga, scraped live from Understat.</p>
-          <div class="card-tags"><span>Data</span><span>Sports</span><span>Scraping</span></div>
-          <div class="card-link">aaronkoshy.com/football ↗</div>
-        </div>
-      </a>
-
-      <a href="/finance/" target="_blank" class="project-card reveal" data-index="02">
-        <div class="card-screen">
-          <img src="/screenshots/finance.png" alt="MERIDIAN Finance" loading="lazy">
-          <div class="card-screen-shine"></div>
-        </div>
-        <div class="card-body">
-          <div class="card-num">02</div>
-          <h3>MERIDIAN</h3>
-          <p>A live financial terminal — stock quotes, indices, crypto, market movers, and sentiment. Dark, dense, always on.</p>
-          <div class="card-tags"><span>Finance</span><span>Real-time</span><span>Dashboard</span></div>
-          <div class="card-link">aaronkoshy.com/finance ↗</div>
-        </div>
-      </a>
-
-      <a href="/nba/" target="_blank" class="project-card reveal" data-index="03">
-        <div class="card-screen">
-          <img src="/screenshots/nba.png" alt="NBA Stats" loading="lazy">
-          <div class="card-screen-shine"></div>
-        </div>
-        <div class="card-body">
-          <div class="card-num">03</div>
-          <h3>NBA Stats</h3>
-          <p>Advanced basketball analytics — standings, player leaderboards, shot charts, and playoff series tracking for the 2025-26 NBA season.</p>
-          <div class="card-tags"><span>Data</span><span>Sports</span><span>Scraping</span></div>
-          <div class="card-link">aaronkoshy.com/nba ↗</div>
-        </div>
-      </a>
-
-      <a href="/city/" target="_blank" class="project-card reveal" data-index="04">
-        <div class="card-screen">
-          <img src="/screenshots/city.svg" alt="CITY//FPS" loading="lazy">
-          <div class="card-screen-shine"></div>
-        </div>
-        <div class="card-body">
-          <div class="card-num">04</div>
-          <h3>CITY//FPS</h3>
-          <p>A first-person game set in real neighborhoods — pick a district of NYC, London, Paris, Tokyo or SF and play it in 3D, rebuilt from OpenStreetMap data.</p>
-          <div class="card-tags"><span>3D</span><span>Games</span><span>Maps</span></div>
-          <div class="card-link">aaronkoshy.com/city ↗</div>
-        </div>
-      </a>
-
-    </div>
-  </div>
+<section class="ov ov-work" data-range="0.56,0.63,0.72,0.78" id="work">
+  <span class="tag">Work</span>
+  <div id="work-detail" aria-live="polite"></div>
+  <div class="hint">Hover a panel · ← → to browse</div>
 </section>
 
-<!-- Contact -->
-<section id="contact" class="contact-section">
-  <div class="contact-inner reveal">
-    <span class="section-tag">Contact</span>
-    <h2>Let's talk</h2>
-    <p>Got an interesting project or just want to chat — my inbox is open.</p>
-    <a href="mailto:aaronkoshy2@gmail.com" class="email-link">aaronkoshy2@gmail.com</a>
-    <div class="contact-socials">
-      <a href="https://github.com/neokrypt47" target="_blank">GitHub ↗</a>
-    </div>
-  </div>
+<section class="ov ov-contact" data-range="0.88,0.95,2,3" id="contact">
+  <span class="tag">Contact</span>
+  <p>Got an interesting project or just want to chat — my inbox is open.</p>
+  <a href="mailto:aaronkoshy2@gmail.com" class="email">aaronkoshy2@gmail.com</a>
+  <div class="socials"><a href="https://github.com/neokrypt47" target="_blank" rel="noopener" class="social-github">GitHub ↗</a></div>
+  <div class="foot">© <span id="yr"></span> Aaron Koshy · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div>
 </section>
 
-<footer class="footer">
-  <span>© <span id="yr"></span> Aaron Koshy</span>
-</footer>
+<!-- Privacy notice: informational (the site sets no cookies) with a one-click analytics opt-out -->
+<aside id="notice" class="notice" role="region" aria-label="Privacy notice" hidden>
+  <p><strong>No cookies, no trackers.</strong> <span class="notice-detail">This site sets no cookies. Visits are counted with self-hosted, cookieless analytics that never stores your IP.</span> <a href="/privacy">Privacy policy</a></p>
+  <div class="notice-actions">
+    <button type="button" id="notice-optout">Don't measure my visits</button>
+    <button type="button" id="notice-ok" class="primary">Got it</button>
+  </div>
+</aside>
 
-<script src="script.js" defer></script>
-<script type="module" src="js/app.js"></script>
+<!-- Project data (also the no-WebGL fallback list) -->
+<ul id="work-list" class="fallback-list">
+  <li data-title="Football Stats" data-img="/screenshots/football.webp" data-href="/football/" data-link="aaronkoshy.com/football ↗" data-tags="Data,Sports,Scraping"
+      data-blurb="Advanced soccer analytics — xG, shot maps, and league tables for the Premier League and La Liga, scraped live from Understat.">
+    <a href="/football/">Football Stats</a></li>
+  <li data-title="MERIDIAN" data-img="/screenshots/finance.webp" data-href="/finance/" data-link="aaronkoshy.com/finance ↗" data-tags="Finance,Real-time,Dashboard"
+      data-blurb="A live financial terminal — stock quotes, indices, crypto, market movers, and sentiment. Dark, dense, always on.">
+    <a href="/finance/">MERIDIAN</a></li>
+  <li data-title="NBA Stats" data-img="/screenshots/nba.webp" data-href="/nba/" data-link="aaronkoshy.com/nba ↗" data-tags="Data,Sports,Scraping"
+      data-blurb="Advanced basketball analytics — standings, player leaderboards, shot charts, and playoff series tracking for the 2025-26 NBA season.">
+    <a href="/nba/">NBA Stats</a></li>
+  <li data-title="CITY//FPS" data-img="/screenshots/city.svg" data-href="/city/" data-link="aaronkoshy.com/city ↗" data-tags="3D,Games,Maps"
+      data-blurb="A first-person game set in real neighborhoods — pick a district of NYC, London, Paris, Tokyo or SF and play it in 3D, rebuilt from OpenStreetMap data.">
+    <a href="/city/">CITY//FPS</a></li>
+</ul>
+
+<script type="module" src="js/main.js"></script>
 </body>
 </html>

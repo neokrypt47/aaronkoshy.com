@@ -1,0 +1,11 @@
+{
+  "name": "Aaron Koshy",
+  "short_name": "AK",
+  "icons": [
+    { "src": "android-chrome-192x192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "android-chrome-512x512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "theme_color": "#04041a",
+  "background_color": "#04041a",
+  "display": "browser"
+}

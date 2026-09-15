@@ -62,6 +62,31 @@ const mobile = matchMedia('(pointer: coarse)').matches || matchMedia('(max-width
 
 const $ = s => document.querySelector(s);
 const yr = document.getElementById('yr'); if (yr) yr.textContent = String(new Date().getFullYear());
+
+// ── Privacy notice + analytics opt-out ──
+// Swetrix (self-hosted, cookieless) is vendored and loaded by index.html; unlike Umami it has no
+// built-in opt-out flag, so init/trackViews and every custom event are gated here on 'swetrix.disabled'.
+// The notice is informational; "Don't measure my visits" sets that flag. Both choices are remembered.
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+const SWETRIX_PROJECT_ID = 'NdV7OPGwpy7p';
+const SWETRIX_API_URL = 'https://analytics.aaronkoshy.com/backend/log';
+const track = (name, data) => { try { if (!store.get('swetrix.disabled')) window.swetrix?.track({ ev: name, meta: data }); } catch {} };
+try {
+  if (!store.get('swetrix.disabled')) {
+    window.swetrix?.init(SWETRIX_PROJECT_ID, { apiURL: SWETRIX_API_URL });
+    window.swetrix?.trackViews();
+  }
+} catch {}
+(() => {
+  const el = document.getElementById('notice');
+  if (!el || store.get('ak-notice')) return;
+  el.hidden = false;
+  const close = () => { el.hidden = true; store.set('ak-notice', '1'); };
+  document.getElementById('notice-ok')?.addEventListener('click', close);
+  document.getElementById('notice-optout')?.addEventListener('click', () => { store.set('swetrix.disabled', '1'); close(); });
+})();
+document.querySelector('.email')?.addEventListener('click', () => track('contact_email'));
+document.querySelector('.social-github')?.addEventListener('click', () => track('contact_github'));
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const lerp = (a, b, t) => a + (b - a) * t;
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -413,7 +438,7 @@ function updateOverlays(prog) {
   for (const o of overlays) {
     const v = smooth(o.a, o.b, prog) * (1 - smooth(o.c, o.d, prog));
     o.el.style.opacity = v.toFixed(3);
-    o.el.style.transform = `translateY(${((1 - v) * 18).toFixed(1)}px)`;
+    o.el.style.setProperty('--reveal-y', `${((1 - v) * 18).toFixed(1)}px`);
     o.el.style.pointerEvents = v > 0.5 ? 'auto' : 'none';
     o.el.setAttribute('aria-hidden', v < 0.5);
   }
@@ -428,8 +453,9 @@ function showCard(i) {
   setTimeout(() => {
     workDetail.innerHTML = `<div class="num">0${i + 1}</div><h3>${c.title}</h3><p>${c.blurb}</p>
       <div class="tags">${c.tags.map(t => `<span>${t}</span>`).join('')}</div>
-      <a href="${c.href}" target="_blank" rel="noopener">${c.link}</a>
+      <a href="${c.href}" target="_blank" rel="noopener" class="project-link">${c.link}</a>
       <div class="dots">${cards.map((_, k) => `<button type="button" aria-label="${cards[k].title}" aria-selected="${k === i}" data-i="${k}"></button>`).join('')}</div>`;
+    workDetail.querySelector('.project-link')?.addEventListener('click', () => track('project_open', { project: c.title, via: 'link' }));
     workDetail.querySelectorAll('button').forEach(b => b.addEventListener('click', () => gotoCard(+b.dataset.i)));
     workDetail.querySelectorAll('a, button').forEach(el => {
       el.addEventListener('pointerenter', () => cring?.classList.add('hover'));
@@ -448,9 +474,9 @@ function gotoCard(i) {
 canvas.addEventListener('click', e => {
   pointer.x = e.clientX; pointer.y = e.clientY;
   const hit = uniforms?.uSlabOn.value ? slabHit() : -1;            // works for taps too
-  if (hit >= 0) { window.open(cards[hit].href, '_blank', 'noopener'); return; }
+  if (hit >= 0) { track('project_open', { project: cards[hit].title, via: 'panel' }); window.open(cards[hit].href, '_blank', 'noopener'); return; }
   const c = CLUSTERS[nearK];
-  if (rayPlaneZ(c.z, tmp2)) burst(c, tmp2, 9);
+  if (rayPlaneZ(c.z, tmp2)) { burst(c, tmp2, 9); track('liquid_burst', { section: c.id }); }
 });
 window.addEventListener('keydown', e => {
   if (nearK !== 2) return;
@@ -512,6 +538,7 @@ function adaptScale() {
 
 // ── Frame ──
 let last = performance.now(), tSim = 0, nearK = 0, frames = 0, lastRender = 0;
+const seenSection = [];
 function frame(now) {
   const realMs = now - last;
   let dt = FIXED_DT ? 1 / 60 : Math.min(realMs / 1000, 0.05);
@@ -553,6 +580,16 @@ function frame(now) {
     activeCard = Math.min(cards.length - 1, Math.floor(s * cards.length));
     const cx = SLAB_X[activeCard] * 0.55;
     cam.pos.x += cx * w; cam.look.x += cx * 0.9 * w;
+    // On a portrait/narrow viewport, CAM_DIST is tuned for the wide fan (all four slabs at
+    // once, which is the point on a landscape screen) — but the same distance also fits the
+    // full ~14.5-unit slab span into a narrow vertical FOV slice, shrinking every card into an
+    // illegible row. Below aspect 0.9, pull the camera in toward just the active slab instead.
+    const aspect = innerWidth / innerHeight;
+    if (aspect < 0.9) {
+      const desiredWidth = 4.4;   // active slab (3.3 wide) plus a little breathing room each side
+      const workDist = clamp(desiredWidth / (2 * uniforms.uTanFov.value * aspect), 3, CAM_DIST);
+      cam.pos.z -= (CAM_DIST - workDist) * w;
+    }
   }
   // pointer parallax
   const px = pointer.inside ? (pointer.x / innerWidth - 0.5) : 0, py = pointer.inside ? (pointer.y / innerHeight - 0.5) : 0;
@@ -627,6 +664,7 @@ function frame(now) {
   canvas.style.cursor = hoverCard >= 0 ? 'pointer' : '';
   cring?.classList.toggle('hover', hoverCard >= 0);
   if (nearK === 2) showCard(hoverCard >= 0 ? hoverCard : activeCard);
+  if (!seenSection[nearK] && p > 0.02) { seenSection[nearK] = true; track('section', { name: CLUSTERS[nearK].id }); }
 
   uniforms.uTime.value = t;
   uniforms.uCamPos.value.copy(camPos);

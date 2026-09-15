@@ -3,14 +3,33 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="description" content="Aaron Koshy — Software Engineer">
-<title>Aaron Koshy</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2350008c'/><text x='50' y='68' font-size='50' font-family='Arial,sans-serif' font-weight='700' fill='white' text-anchor='middle'>AK</text></svg>">
+<title>Aaron Koshy — Software Engineer</title>
+<meta name="description" content="Software engineer building data dashboards, sports analytics and browser experiments. Portfolio, projects and contact.">
+<link rel="canonical" href="https://aaronkoshy.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Aaron Koshy">
+<meta property="og:title" content="Aaron Koshy — Software Engineer">
+<meta property="og:description" content="Software engineer building data dashboards, sports analytics and browser experiments. Portfolio, projects and contact.">
+<meta property="og:url" content="https://aaronkoshy.com/">
+<meta property="og:image" content="https://aaronkoshy.com/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The name Aaron Koshy glowing inside a block of purple liquid glass">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Aaron Koshy — Software Engineer">
+<meta name="twitter:description" content="Software engineer building data dashboards, sports analytics and browser experiments.">
+<meta name="twitter:image" content="https://aaronkoshy.com/og.png">
+<meta name="theme-color" content="#04041a">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="32x32">
+<link rel="icon" href="favicon-16x16.png" type="image/png" sizes="16x16">
+<link rel="icon" href="favicon-32x32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="apple-touch-icon.png" sizes="180x180">
+<link rel="mask-icon" href="safari-pinned-tab.svg" color="#8b3ce0">
+<link rel="manifest" href="site.webmanifest">
 <link rel="stylesheet" href="style.css">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preload" href="fonts/Syne-800-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<link rel="preload" href="fonts/PlusJakartaSans-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- The import map must be parsed before ANY module resolution starts, and modulepreload
      starts it — so this has to stay above the preloads below, not after them. -->
 <script type="importmap">
@@ -37,6 +56,7 @@
 <link rel="modulepreload" href="js/main.js">
 <link rel="modulepreload" href="js/shaders.js">
 <link rel="modulepreload" href="js/sdf.js">
+<script defer src="vendor/swetrix/swetrix.js"></script>
 </head>
 <body>
 
@@ -92,19 +112,28 @@
   <span class="tag">Contact</span>
   <p>Got an interesting project or just want to chat — my inbox is open.</p>
   <a href="mailto:aaronkoshy2@gmail.com" class="email">aaronkoshy2@gmail.com</a>
-  <div class="socials"><a href="https://github.com/neokrypt47" target="_blank" rel="noopener">GitHub ↗</a></div>
-  <div class="foot">© <span id="yr"></span> Aaron Koshy</div>
+  <div class="socials"><a href="https://github.com/neokrypt47" target="_blank" rel="noopener" class="social-github">GitHub ↗</a></div>
+  <div class="foot">© <span id="yr"></span> Aaron Koshy · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div>
 </section>
+
+<!-- Privacy notice: informational (the site sets no cookies) with a one-click analytics opt-out -->
+<aside id="notice" class="notice" role="region" aria-label="Privacy notice" hidden>
+  <p><strong>No cookies, no trackers.</strong> <span class="notice-detail">This site sets no cookies. Visits are counted with self-hosted, cookieless analytics that never stores your IP.</span> <a href="/privacy">Privacy policy</a></p>
+  <div class="notice-actions">
+    <button type="button" id="notice-optout">Don't measure my visits</button>
+    <button type="button" id="notice-ok" class="primary">Got it</button>
+  </div>
+</aside>
 
 <!-- Project data (also the no-WebGL fallback list) -->
 <ul id="work-list" class="fallback-list">
-  <li data-title="Football Stats" data-img="/screenshots/football.png" data-href="/football/" data-link="aaronkoshy.com/football ↗" data-tags="Data,Sports,Scraping"
+  <li data-title="Football Stats" data-img="/screenshots/football.webp" data-href="/football/" data-link="aaronkoshy.com/football ↗" data-tags="Data,Sports,Scraping"
       data-blurb="Advanced soccer analytics — xG, shot maps, and league tables for the Premier League and La Liga, scraped live from Understat.">
     <a href="/football/">Football Stats</a></li>
-  <li data-title="MERIDIAN" data-img="/screenshots/finance.png" data-href="/finance/" data-link="aaronkoshy.com/finance ↗" data-tags="Finance,Real-time,Dashboard"
+  <li data-title="MERIDIAN" data-img="/screenshots/finance.webp" data-href="/finance/" data-link="aaronkoshy.com/finance ↗" data-tags="Finance,Real-time,Dashboard"
       data-blurb="A live financial terminal — stock quotes, indices, crypto, market movers, and sentiment. Dark, dense, always on.">
     <a href="/finance/">MERIDIAN</a></li>
-  <li data-title="NBA Stats" data-img="/screenshots/nba.png" data-href="/nba/" data-link="aaronkoshy.com/nba ↗" data-tags="Data,Sports,Scraping"
+  <li data-title="NBA Stats" data-img="/screenshots/nba.webp" data-href="/nba/" data-link="aaronkoshy.com/nba ↗" data-tags="Data,Sports,Scraping"
       data-blurb="Advanced basketball analytics — standings, player leaderboards, shot charts, and playoff series tracking for the 2025-26 NBA season.">
     <a href="/nba/">NBA Stats</a></li>
   <li data-title="CITY//FPS" data-img="/screenshots/city.svg" data-href="/city/" data-link="aaronkoshy.com/city ↗" data-tags="3D,Games,Maps"

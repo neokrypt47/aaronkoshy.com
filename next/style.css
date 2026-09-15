@@ -1,4 +1,6 @@
 @font-face { font-family: 'Syne'; font-style: normal; font-weight: 700 800; font-display: swap; src: url('fonts/Syne-800-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Plus Jakarta Sans'; font-style: normal; font-weight: 200 800; font-display: swap; src: url('fonts/PlusJakartaSans-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Plus Jakarta Sans'; font-style: italic; font-weight: 200 800; font-display: swap; src: url('fonts/PlusJakartaSans-italic-latin.woff2') format('woff2'); }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --white: #fff; --w80: rgba(255,255,255,.8); --w50: rgba(255,255,255,.5); --w20: rgba(255,255,255,.2); --w10: rgba(255,255,255,.1);
@@ -54,10 +56,11 @@ body.ready #scene { opacity: 1; }
 .tag { display: block; font-size: .72rem; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; color: var(--w50); margin-bottom: 16px; }
 .hint { font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; color: var(--w20); margin-top: 28px; }
 
+.ov { transform: translateY(var(--reveal-y, 0px)); }
 .ov-hero { left: 48px; bottom: 64px; max-width: 560px; }
 .ov-hero p { font-size: clamp(1rem, 1.6vw, 1.15rem); font-weight: 300; line-height: 1.65; color: var(--w80); }
 
-.ov-about { right: 48px; top: 50%; transform: translateY(-50%); width: min(460px, 44vw); }
+.ov-about { right: 48px; top: 50%; transform: translateY(-50%) translateY(var(--reveal-y, 0px)); width: min(460px, 44vw); }
 .ov-about h2 { font-family: var(--head); font-size: clamp(30px, 3.4vw, 44px); font-weight: 800; line-height: 1.05; letter-spacing: -.02em; margin-bottom: 22px; }
 .ov-about h2 em { font-style: italic; font-weight: 700; color: var(--w50); }
 .ov-about p { font-size: .95rem; font-weight: 300; line-height: 1.75; color: var(--w80); margin-bottom: 14px; }
@@ -78,13 +81,27 @@ body.ready #scene { opacity: 1; }
 .dots button { width: 26px; height: 4px; border-radius: 4px; border: 0; padding: 0; background: var(--w20); transition: background .25s, width .25s; }
 .dots button[aria-selected="true"] { background: #fff; width: 42px; }
 
-.ov-contact { left: 50%; bottom: 72px; transform: translateX(-50%); text-align: center; width: min(560px, 90vw); }
+.ov-contact { left: 50%; bottom: 72px; transform: translateX(-50%) translateY(var(--reveal-y, 0px)); text-align: center; width: min(560px, 90vw); }
 .ov-contact p { font-size: .98rem; font-weight: 300; color: var(--w80); margin-bottom: 26px; }
 .ov-contact .email { display: inline-block; color: #fff; text-decoration: none; font-size: clamp(1rem, 2.2vw, 1.3rem); padding-bottom: 6px; border-bottom: 1px solid var(--w20); margin-bottom: 26px; transition: border-color .2s; }
 .ov-contact .email:hover { border-color: #fff; }
 .socials a { color: var(--w50); text-decoration: none; font-size: .85rem; letter-spacing: .04em; }
 .socials a:hover { color: #fff; }
 .foot { margin-top: 40px; font-size: .7rem; letter-spacing: .08em; color: var(--w20); }
+.foot a { color: var(--w50); text-decoration: none; }
+.foot a:hover { color: #fff; }
+
+/* privacy notice */
+.notice { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 30; width: min(640px, calc(100vw - 32px)); display: flex; gap: 18px; align-items: center; flex-wrap: wrap; padding: 14px 18px; border-radius: 16px; background: rgba(20, 8, 48, .72); border: 1px solid var(--w20); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 20px 60px rgba(0,0,0,.4); animation: notice-in .5s ease .8s both; }
+.notice p { flex: 1 1 300px; margin: 0; font-size: .82rem; line-height: 1.5; color: var(--w80); }
+.notice p a { color: #fff; }
+.notice-actions { display: flex; gap: 8px; }
+.notice button { font: inherit; font-size: .8rem; padding: 9px 14px; border-radius: 100px; border: 1px solid var(--w20); background: var(--w10); color: #fff; }
+.notice button.primary { background: #fff; color: #1a0040; border-color: #fff; }
+.notice button:hover { filter: brightness(1.1); }
+@keyframes notice-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes notice-in-mobile { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .notice { animation: none; } }
 
 /* project data list: hidden when the scene runs, visible as the no-WebGL fallback */
 .fallback-list { display: none; }
@@ -102,9 +119,13 @@ body.no-gl { cursor: auto; }
   .nav { padding: 20px 22px; }
   .nav ul { gap: 20px; }
   .ov-hero, .ov-work { left: 22px; right: 22px; bottom: 40px; width: auto; max-width: none; }
-  .ov-about { left: 22px; right: 22px; top: auto; bottom: 40px; transform: none; width: auto; }
+  .ov-about { left: 22px; right: 22px; top: auto; bottom: 40px; transform: translateY(var(--reveal-y, 0px)); width: auto; }
   .ov-about p:nth-of-type(2) { display: none; }
   .ov-contact { bottom: 48px; }
   .hint { display: none; }
+  .notice { top: 78px; bottom: auto; left: 16px; right: 16px; width: auto; transform: none; animation-name: notice-in-mobile; flex-direction: column; align-items: stretch; }
+  .notice .notice-detail { display: none; }
+  .notice p { flex: none; }   /* the base rule's flex-basis:300px sizes HEIGHT once flex-direction flips to column */
+  .notice-actions { justify-content: flex-end; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
