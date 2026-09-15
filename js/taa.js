@@ -133,6 +133,11 @@ export class TAAPass extends Pass {
     this.valid = 0;                                     // history is meaningless at a new size
   }
 
+  // Forces one frame with no history blend. Same idea as the size-change reset above: call
+  // this whenever `this.scene`'s content changes discontinuously (e.g. a material swap) so
+  // the neighborhood clamp doesn't smear the old shading into the new frame.
+  invalidate() { this.valid = 0; }
+
   render(renderer, writeBuffer) {
     const u = this.material.uniforms;
     const lw = this.low.width, lh = this.low.height;
