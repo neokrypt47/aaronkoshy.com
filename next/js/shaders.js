@@ -46,6 +46,20 @@ uniform int   uSteps;
 uniform int   uISteps;
 uniform vec2  uJitter;   // sub-pixel ray offset, in render pixels (temporal upsampling)
 
+// ── Tunable look constants (defaults match the original hand-picked values exactly;
+// exposed as uniforms only so the live tune panel — js/tune.js, dev-only — can drag
+// them. Nothing here changes the default render. ──
+uniform vec3  uSkyLow;    uniform vec3 uSkyHigh;    // vertical sky gradient
+uniform vec3  uFloorGlow; uniform vec3 uHorizonColor;
+uniform vec3  uSb0Color;  uniform float uSb0I;      // three softbox highlights
+uniform vec3  uSb1Color;  uniform float uSb1I;
+uniform vec3  uSb2Color;  uniform float uSb2I;
+uniform vec3  uTextColor;
+uniform vec3  uTIRColor;
+uniform vec3  uGlowColor;
+uniform float uHaloMin;   uniform float uHaloRange;
+uniform float uVignette;
+
 // ── SDF helpers ──
 float smin(float a, float b, float k) {
   float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
@@ -154,12 +168,12 @@ vec3 nSolid(vec3 p) {
 // ── Environment: dark studio with two softboxes ──
 float softbox(vec3 d, vec3 L, float k) { return smoothstep(k - 0.012, k + 0.004, dot(d, L)); }
 vec3 env(vec3 d) {
-  vec3 c = mix(vec3(0.05, 0.03, 0.14), vec3(0.16, 0.035, 0.30), smoothstep(-0.7, 0.8, d.y));
-  c += vec3(0.16, 0.06, 0.30) * smoothstep(0.0, -0.9, d.y);      // soft floor glow so TIR never goes black
-  c += vec3(0.30, 0.12, 0.55) * pow(max(0.0, 1.0 - abs(d.y - 0.02) * 2.6), 3.0) * 0.55;
-  c += vec3(1.0, 0.82, 1.0) * softbox(d, normalize(vec3(-0.55, 0.70, 0.45)), 0.982) * 3.2;
-  c += vec3(0.45, 0.72, 1.0) * softbox(d, normalize(vec3(0.75, 0.25, -0.35)), 0.988) * 2.4;
-  c += vec3(0.9, 0.4, 1.0)  * softbox(d, normalize(vec3(0.1, -0.85, 0.5)), 0.992) * 1.2;
+  vec3 c = mix(uSkyLow, uSkyHigh, smoothstep(-0.7, 0.8, d.y));
+  c += uFloorGlow * smoothstep(0.0, -0.9, d.y);      // soft floor glow so TIR never goes black
+  c += uHorizonColor * pow(max(0.0, 1.0 - abs(d.y - 0.02) * 2.6), 3.0) * 0.55;
+  c += uSb0Color * softbox(d, normalize(vec3(-0.55, 0.70, 0.45)), 0.982) * uSb0I;
+  c += uSb1Color * softbox(d, normalize(vec3(0.75, 0.25, -0.35)), 0.988) * uSb1I;
+  c += uSb2Color * softbox(d, normalize(vec3(0.1, -0.85, 0.5)), 0.992) * uSb2I;
   return c;
 }
 
@@ -167,7 +181,7 @@ vec3 shadeSolid(vec3 p, int id, vec3 rd) {
   vec3 n = nSolid(p);
   vec3 L = normalize(vec3(-0.45, 0.8, 0.6));
   float dif = 0.55 + 0.45 * max(dot(n, L), 0.0);
-  if (id == 0) return vec3(1.0, 0.97, 1.0) * (0.88 + 0.16 * dif); // the name: pure white, below bloom threshold so edges stay crisp
+  if (id == 0) return uTextColor * (0.88 + 0.16 * dif); // the name: pure white by default, below bloom threshold so edges stay crisp
   int i = id - 1;
   vec3 l = p - uSlab[i].xyz;
   float hov = uSlab[i].w;
@@ -198,7 +212,7 @@ vec3 marchInside(vec3 p, vec3 rr) {
     if (tt > 40.0) { exited = true; break; }
   }
   vec3 absorb = exp(-uAbsorb * tt);
-  vec3 glow = vec3(0.30, 0.10, 0.55) * (1.0 - exp(-tt * 0.22)) * 0.35;  // subsurface purple
+  vec3 glow = uGlowColor * (1.0 - exp(-tt * 0.22));  // subsurface glow
   vec3 col;
   if (sid >= 0) {
     col = shadeSolid(q, sid, rr);
@@ -219,8 +233,8 @@ vec3 marchInside(vec3 p, vec3 rr) {
     if (dot(r0, r0) < 0.5) r0 = r1;
     if (dot(r2, r2) < 0.5) r2 = r1;
     col = vec3(env(r0).r, env(r1).g, env(r2).b) * 0.9;
-    if (tir) col = mix(col, vec3(0.42, 0.22, 0.70), 0.55);        // TIR reads as tinted glass, not a dark seam
-    col *= mix(0.30, 1.0, smoothstep(0.0, 0.6, nearText));       // soft dark halo hugging the letters
+    if (tir) col = mix(col, uTIRColor, 0.55);        // TIR reads as tinted glass, not a dark seam
+    col *= mix(uHaloMin, 1.0, smoothstep(0.0, uHaloRange, nearText));       // soft dark halo hugging the letters
   }
   return col * absorb + glow;
 }
@@ -243,7 +257,7 @@ void main() {
   vec3 ro = uCamPos;
 
   vec3 bg = env(rd) * 0.7;
-  float vig = 1.0 - 0.35 * dot(uv * 0.6, uv * 0.6);
+  float vig = 1.0 - uVignette * dot(uv * 0.6, uv * 0.6);
   bg *= vig;
 
   vec3 col;

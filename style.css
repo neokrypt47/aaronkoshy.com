@@ -92,6 +92,7 @@ body.ready #scene { opacity: 1; }
 .foot a:hover { color: #fff; }
 
 /* privacy notice */
+.notice[hidden] { display: none; }
 .notice { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 30; width: min(640px, calc(100vw - 32px)); display: flex; gap: 18px; align-items: center; flex-wrap: wrap; padding: 14px 18px; border-radius: 16px; background: rgba(20, 8, 48, .72); border: 1px solid var(--w20); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 20px 60px rgba(0,0,0,.4); animation: notice-in .5s ease .8s both; }
 .notice p { flex: 1 1 300px; margin: 0; font-size: .82rem; line-height: 1.5; color: var(--w80); }
 .notice p a { color: #fff; }
@@ -119,9 +120,12 @@ body.no-gl { cursor: auto; }
   .nav { padding: 20px 22px; }
   .nav ul { gap: 20px; }
   .ov-hero, .ov-work { left: 22px; right: 22px; bottom: 40px; width: auto; max-width: none; }
-  .ov-about { left: 22px; right: 22px; top: auto; bottom: 40px; transform: translateY(var(--reveal-y, 0px)); width: auto; }
+  /* about/contact text sits over the same screen band the WebGL cluster text occupies at short
+     viewport heights; a scrim card (matching .notice) keeps it legible instead of letters-on-letters */
+  .ov-about, .ov-contact { background: rgba(10,4,26,.6); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--w10); border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.4); }
+  .ov-about { left: 22px; right: 22px; top: auto; bottom: 40px; transform: translateY(var(--reveal-y, 0px)); width: auto; padding: 20px 22px; }
   .ov-about p:nth-of-type(2) { display: none; }
-  .ov-contact { bottom: 48px; }
+  .ov-contact { bottom: 48px; padding: 20px 24px; }
   .hint { display: none; }
   .notice { top: 78px; bottom: auto; left: 16px; right: 16px; width: auto; transform: none; animation-name: notice-in-mobile; flex-direction: column; align-items: stretch; }
   .notice .notice-detail { display: none; }

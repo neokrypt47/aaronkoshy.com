@@ -314,6 +314,18 @@ async function init() {
     uIor: { value: 1.27 }, uAbsorb: { value: new THREE.Vector3(0.10, 0.17, 0.025) }, uDisp: { value: mobile ? 0 : 0.012 },
     uSteps: { value: mobile ? 64 : 96 }, uISteps: { value: mobile ? 36 : 56 },
     uJitter: { value: new THREE.Vector2() },
+    // Tunable look constants — defaults match the original hardcoded shader values.
+    // Live-editable from the dev tune panel (js/tune.js, ?tune on localhost).
+    uSkyLow: { value: new THREE.Vector3(0.05, 0.03, 0.14) }, uSkyHigh: { value: new THREE.Vector3(0.16, 0.035, 0.30) },
+    uFloorGlow: { value: new THREE.Vector3(0.16, 0.06, 0.30) }, uHorizonColor: { value: new THREE.Vector3(0.30, 0.12, 0.55) },
+    uSb0Color: { value: new THREE.Vector3(1.0, 0.82, 1.0) }, uSb0I: { value: 3.2 },
+    uSb1Color: { value: new THREE.Vector3(0.45, 0.72, 1.0) }, uSb1I: { value: 2.4 },
+    uSb2Color: { value: new THREE.Vector3(0.9, 0.4, 1.0) }, uSb2I: { value: 1.2 },
+    uTextColor: { value: new THREE.Vector3(1.0, 0.97, 1.0) },
+    uTIRColor: { value: new THREE.Vector3(0.42, 0.22, 0.70) },
+    uGlowColor: { value: new THREE.Vector3(0.30, 0.10, 0.55).multiplyScalar(0.35) },
+    uHaloMin: { value: 0.30 }, uHaloRange: { value: 0.6 },
+    uVignette: { value: 0.35 },
   };
   // Cheap variant first: compiles fast (small compile-time loop bounds, see shaders.js),
   // so the page can paint and become interactive without waiting on the full shader.
@@ -567,7 +579,14 @@ function adaptScale() {
   msPerPx = msPerPx ? lerp(msPerPx, frameMs / pixels, 0.3) : frameMs / pixels;
   let want = Math.sqrt((BUDGET_MS / msPerPx) / (innerWidth * innerHeight));
   want = clamp(want, SCALE_FLOOR, targetScale);
-  want = clamp(want, scale * 0.6, scale * 1.4);                 // damp: one bad frame can't slam it
+  // The ±40%-per-step damp below is meant to stop one bad frame from slamming the scale
+  // down — but on a genuinely weak/throttled device, the *starting* scale can be several
+  // times too expensive, and damping the very first correction then means each of several
+  // still-too-slow intermediate frames is itself a multi-second long task while it ratchets
+  // down (measured: a real Moto G Power PageSpeed run took ~8 halving steps, each its own
+  // multi-second main-thread block, to converge). Let the first correction jump straight to
+  // the computed value; damp normally after that once the scale is in the right neighborhood.
+  if (adapts > 1) want = clamp(want, scale * 0.6, scale * 1.4);
   if (Math.abs(want - scale) > scale * 0.04) { scale = want; applySize(); }
 }
 
@@ -611,7 +630,11 @@ function frame(now) {
   } else {
     // Measure whenever the loop is running flat out, even under ?scale= — the forced
     // case is exactly when you want to read the cost of a scale you picked by hand.
-    if (frames > 5 && renderedRun > 0) frameMs = lerp(frameMs, realMs, 0.15);   // GPU-bound cost shows up as rAF interval
+    // Converge fast before the first adaptScale() call (adapts===0): a slow 0.15 EMA
+    // starting from the optimistic 16ms initial guess means adaptScale's first correction
+    // is computed from a frameMs that's still mostly "16", understating a genuinely weak
+    // device's real cost and needing several more (individually slow) frames to catch up.
+    if (frames > 5 && renderedRun > 0) frameMs = lerp(frameMs, realMs, adapts === 0 ? 0.6 : 0.15);   // GPU-bound cost shows up as rAF interval
     renderedRun++;
     if (!FORCE_SCALE && now - lastAdapt > ADAPT_EVERY && renderedRun > 3) { adaptScale(); lastAdapt = now; }
   }
