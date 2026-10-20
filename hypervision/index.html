@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>HYPERVISION</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --accent: #35e0ff;
+        --warn: #ff4d6d;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #06080c;
+        color: #e8f4f8;
+        font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+      }
+      canvas { display: block; }
+
+      #shell {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        text-align: center;
+        pointer-events: none;
+      }
+      #shell > div { pointer-events: auto; max-width: 34rem; }
+
+      h1 {
+        margin: 0 0 0.25rem;
+        font-size: clamp(2rem, 9vw, 3.5rem);
+        letter-spacing: 0.35em;
+        font-weight: 500;
+        text-indent: 0.35em;
+        background: linear-gradient(180deg, #fff, var(--accent));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .tag {
+        margin: 0 0 2rem;
+        font-size: 0.8rem;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        opacity: 0.5;
+      }
+      #enter {
+        appearance: none;
+        border: 1px solid var(--accent);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        color: var(--accent);
+        font: inherit;
+        font-size: 1rem;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        padding: 0.9rem 2.2rem;
+        border-radius: 2px;
+        cursor: pointer;
+        transition: background 0.15s, box-shadow 0.15s;
+      }
+      #enter:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--accent) 24%, transparent);
+        box-shadow: 0 0 32px -8px var(--accent);
+      }
+      #enter:disabled { opacity: 0.35; cursor: default; border-color: #46525c; color: #8b9aa4; background: none; }
+
+      #status {
+        margin-top: 1.75rem;
+        font-size: 0.78rem;
+        line-height: 1.7;
+        opacity: 0.6;
+        white-space: pre-wrap;
+      }
+      #status.error { color: var(--warn); opacity: 0.95; }
+      code { color: var(--accent); }
+    </style>
+    <script type="module" crossorigin src="/hypervision/assets/index-DDRvl4kQ.js"></script>
+  </head>
+  <body>
+    <div id="shell">
+      <div>
+        <h1>HYPERVISION</h1>
+        <p class="tag">Room-scale passthrough defense</p>
+        <button id="enter" disabled>Checking headset…</button>
+        <p id="status"></p>
+      </div>
+    </div>
+  </body>
+</html>
