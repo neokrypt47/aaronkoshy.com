@@ -35,9 +35,37 @@ const RESOLVE = {
     uniform sampler2D tCur;        // half-res: rgb colour, a = distance along ray
     uniform sampler2D tHist;       // full-res accumulation
     uniform vec2  uCurTexel;       // 1 / half-res size
+    uniform vec2  uHistTexel;      // 1 / full-res size
     uniform vec3  uCamPos, uRight, uUp, uFwd;
     uniform vec3  uPrevPos, uPrevRight, uPrevUp, uPrevFwd;
     uniform float uTanFov, uAspect, uFeedback, uHistValid;
+
+    // Catmull-Rom history fetch (9 taps folded into bilinear ones). Plain bilinear
+    // re-filters the history every moving frame, and at 88% feedback that compounds into
+    // a visible blur while scrolling; this kernel keeps edges. Exact at texel centres, so
+    // a still camera reads the history back unchanged.
+    vec3 sampleHist(vec2 uv) {
+      vec2 pos = uv / uHistTexel;
+      vec2 p1 = floor(pos - 0.5) + 0.5;
+      vec2 f = pos - p1;
+      vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+      vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+      vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+      vec2 w3 = f * f * (-0.5 + 0.5 * f);
+      vec2 w12 = w1 + w2;
+      vec2 t0 = (p1 - 1.0) * uHistTexel, t3 = (p1 + 2.0) * uHistTexel;
+      vec2 t12 = (p1 + w2 / w12) * uHistTexel;
+      vec3 r = texture2D(tHist, vec2(t0.x,  t0.y)).rgb  * w0.x  * w0.y
+             + texture2D(tHist, vec2(t12.x, t0.y)).rgb  * w12.x * w0.y
+             + texture2D(tHist, vec2(t3.x,  t0.y)).rgb  * w3.x  * w0.y
+             + texture2D(tHist, vec2(t0.x,  t12.y)).rgb * w0.x  * w12.y
+             + texture2D(tHist, vec2(t12.x, t12.y)).rgb * w12.x * w12.y
+             + texture2D(tHist, vec2(t3.x,  t12.y)).rgb * w3.x  * w12.y
+             + texture2D(tHist, vec2(t0.x,  t3.y)).rgb  * w0.x  * w3.y
+             + texture2D(tHist, vec2(t12.x, t3.y)).rgb  * w12.x * w3.y
+             + texture2D(tHist, vec2(t3.x,  t3.y)).rgb  * w3.x  * w3.y;
+      return max(r, vec3(0.0));
+    }
 
     void main() {
       vec4 cur = texture2D(tCur, vUv);
@@ -70,7 +98,7 @@ const RESOLVE = {
         vec3 n4 = texture2D(tCur, vUv - vec2(0.0, uCurTexel.y)).rgb;
         mn = min(mn, min(min(n1, n2), min(n3, n4)));
         mx = max(mx, max(max(n1, n2), max(n3, n4)));
-        vec3 hist = clamp(texture2D(tHist, h).rgb, mn, mx);
+        vec3 hist = clamp(sampleHist(h), mn, mx);
         c = mix(c, hist, w);
       }
       gl_FragColor = vec4(c, 1.0);
@@ -99,7 +127,7 @@ export class TAAPass extends Pass {
       vertexShader: RESOLVE.vertexShader,
       fragmentShader: RESOLVE.fragmentShader,
       uniforms: {
-        tCur: { value: null }, tHist: { value: null }, uCurTexel: { value: new THREE.Vector2() },
+        tCur: { value: null }, tHist: { value: null }, uCurTexel: { value: new THREE.Vector2() }, uHistTexel: { value: new THREE.Vector2() },
         uCamPos: { value: new THREE.Vector3() }, uRight: { value: new THREE.Vector3() },
         uUp: { value: new THREE.Vector3() }, uFwd: { value: new THREE.Vector3() },
         uPrevPos: { value: new THREE.Vector3() }, uPrevRight: { value: new THREE.Vector3() },
@@ -130,6 +158,7 @@ export class TAAPass extends Pass {
     this.low.setSize(lw, lh);
     this.hist[0].setSize(w, h); this.hist[1].setSize(w, h);
     this.material.uniforms.uCurTexel.value.set(1 / lw, 1 / lh);
+    this.material.uniforms.uHistTexel.value.set(1 / w, 1 / h);
     this.valid = 0;                                     // history is meaningless at a new size
   }
 

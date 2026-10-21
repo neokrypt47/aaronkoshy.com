@@ -4,11 +4,9 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
-import { VERT, FRAG, FRAG_FAST } from './shaders.js';
-import { TAAPass } from './taa.js';
-import { rasterText, edtSigned, toHalf } from './sdf.js';
+import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261021';
+import { TAAPass } from './taa.js?v=20261021';
+import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261021';
 
 // ── Preloader ──
 // Driven by the same marks ?debug reports, so it tracks real work rather than a timer.
@@ -165,7 +163,7 @@ document.querySelectorAll('a, button').forEach(el => {
   el.addEventListener('pointerleave', () => cring?.classList.remove('hover'));
 });
 
-// ── Interaction tracking: adaptive scale while interacting, full res at 30 fps when still ──
+// ── Interaction tracking: adaptive scale while interacting, sharper at 30 fps when still ──
 let lastInput = performance.now();
 const noteInput = () => { lastInput = performance.now(); };
 ['pointermove', 'pointerdown', 'wheel', 'touchmove', 'keydown', 'scroll'].forEach(ev => window.addEventListener(ev, noteInput, { passive: true }));
@@ -208,7 +206,7 @@ function cameraFor(prog) {
 
 // ── Renderer ──
 const canvas = $('#scene');
-let renderer, composer, bloom, fxaa, material, uniforms, scene, cam, taa, quad;
+let renderer, composer, bloom, material, uniforms, scene, cam, taa, quad;
 // Progressive shader swap: `material`/`quad` start on the cheap FRAG_FAST variant so the
 // page paints and is interactive almost immediately; the full FRAG shader compiles in the
 // background (started once a few real frames have rendered) and is swapped in on a frame
@@ -216,7 +214,9 @@ let renderer, composer, bloom, fxaa, material, uniforms, scene, cam, taa, quad;
 // GLSL variant — not just lower runtime uSteps/uISteps — is what actually compiles fast.
 let fullMaterial = null, fullReady = false, fullCompileStarted = false;
 const DPR = Math.min(devicePixelRatio || 1, 2);
-let scale = FORCE_SCALE ?? (mobile ? DPR * 0.55 : DPR * 0.85);   // drawing-buffer px per CSS px
+// Desktop draws at native DPR: at 0.85 the browser stretched the canvas back up to the screen,
+// which softened every edge on top of TAA's half-res march.
+let scale = FORCE_SCALE ?? (mobile ? DPR * 0.55 : DPR);   // drawing-buffer px per CSS px
 const targetScale = scale;
 
 function hasWebGL2() { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } }
@@ -239,7 +239,7 @@ async function buildTextures() {
   try { await document.fonts.load('800 200px Syne'); } catch {}
   T.mark('fonts');
   let worker = null;
-  try { worker = new Worker(new URL('./sdf-worker.js', import.meta.url), { type: 'module' }); } catch {}
+  try { worker = new Worker(new URL('./sdf-worker.js?v=20261021', import.meta.url), { type: 'module' }); } catch {}
   const pending = new Map();
   if (worker) worker.onmessage = e => { const p = pending.get(e.data.id); if (p) { pending.delete(e.data.id); p(e.data); } };
   // Instant low-res hero field (~20 ms on the main thread) so the first frame never waits on the worker.
@@ -345,9 +345,8 @@ async function init() {
   else composer.addPass(new RenderPass(scene, cam));
   bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.3, 0.3, 1.1);
   composer.addPass(bloom);
+  // No FXAA: TAA already resolves the edges, and FXAA on top only blurred the name.
   composer.addPass(new OutputPass());
-  fxaa = new ShaderPass(FXAAShader);
-  composer.addPass(fxaa);
   applySize();
   await renderer.compileAsync(scene, cam);   // cheap FRAG_FAST — fast even on a cold driver cache
   T.mark('shader');
@@ -398,7 +397,6 @@ function applySize() {
   composer.setPixelRatio(1);
   composer.setSize(w, h);
   uniforms.uRes.value.set(w, h);
-  if (fxaa) fxaa.material.uniforms.resolution.value.set(1 / w, 1 / h);
 }
 
 // ── Physics ──
@@ -547,12 +545,16 @@ if (DEBUG) {
 //
 // The cost model is only fed while interacting, where every rAF callback renders and
 // the interval is an honest measure of GPU cost. While idle we cap at 30 fps, which
-// makes the interval meaningless — so we hold the scale we learned rather than
-// throwing it away and starting over on the next pointer move.
+// makes the interval meaningless — so we keep the scale we learned for the next pointer
+// move rather than starting over. While still, though, a slow frame costs nothing, so we
+// spend a bigger budget on resolution: the letters sharpen as soon as the visitor stops,
+// and the learned interactive scale comes back on the next input.
 const BUDGET_MS = 33;                              // target frame time while interacting
+const IDLE_BUDGET_MS = 50;                         // still: the 30 fps cap already hides this
 const SCALE_FLOOR = Math.min(0.5, targetScale);    // below this the letters go soft
 const ADAPT_EVERY = 300;                           // ms between adjustments
 let msPerPx = 0, lastAdapt = 0, renderedRun = 0, adapts = 0;
+let idleRes = false, activeScale = scale;
 
 // Console handles for profiling. Behind ?debug so a normal page load exposes no globals
 // and hands out no references to the renderer. Note that the ?debug overlay itself costs
@@ -561,10 +563,17 @@ let msPerPx = 0, lastAdapt = 0, renderedRun = 0, adapts = 0;
 if (DEBUG) {
   window.__gl = () => ({ renderer, composer, scene, cam, uniforms, material, taa, quad, fullMaterial, fullReady });
   window.__perf = () => ({
-    scale, targetScale, floor: SCALE_FLOOR, frameMs, msPerPx, adapts,
+    scale, targetScale, activeScale, idleRes, floor: SCALE_FLOOR, frameMs, msPerPx, adapts,
     passes: composer?.passes.map(p => p.constructor.name),
     canvas: renderer && [renderer.domElement.width, renderer.domElement.height],
   });
+}
+
+// Never below the interactive scale; up to native DPR when the cost model says it fits.
+// No model yet means frames never exceeded vsync, so the interactive target is already cheap.
+function idleScale() {
+  if (!msPerPx) return targetScale;
+  return clamp(Math.sqrt((IDLE_BUDGET_MS / msPerPx) / (innerWidth * innerHeight)), activeScale, DPR);
 }
 
 function adaptScale() {
@@ -627,7 +636,16 @@ function frame(now) {
   if (!interacting && !FORCE_SCALE) {
     if (now - lastRender < 31) { requestAnimationFrame(frame); return; }
     renderedRun = 0;
+    if (!idleRes) {
+      idleRes = true; activeScale = scale;
+      const s = idleScale();
+      if (s > scale * 1.04) { scale = s; applySize(); }
+    }
   } else {
+    if (idleRes) {
+      idleRes = false;
+      if (scale !== activeScale) { scale = activeScale; applySize(); }
+    }
     // Measure whenever the loop is running flat out, even under ?scale= — the forced
     // case is exactly when you want to read the cost of a scale you picked by hand.
     // Converge fast before the first adaptScale() call (adapts===0): a slow 0.15 EMA

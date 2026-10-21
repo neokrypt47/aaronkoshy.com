@@ -37,7 +37,7 @@ function edt(grid, w, h) {
   }
 }
 
-/** Rasterise `lines` centred on a w×h canvas; returns a Uint8Array mask (1 = inside glyph). Main thread only (needs the page font). */
+/** Rasterise `lines` centred on a w×h canvas; returns a Uint8Array mask of anti-aliased glyph coverage (0 outside … 255 inside). Main thread only (needs the page font). */
 export function rasterText(lines, { w = 1024, h = 512, font = 'Syne', weight = 800, fill = 0.86, lineHeight = 0.92, spacing = -0.03 } = {}) {
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
   const ctx = cv.getContext('2d', { willReadFrequently: true });
@@ -59,7 +59,9 @@ export function rasterText(lines, { w = 1024, h = 512, font = 'Syne', weight = 8
 
   const img = ctx.getImageData(0, 0, w, h).data;
   const mask = new Uint8Array(w * h);
-  for (let i = 0; i < w * h; i++) mask[i] = img[i * 4] > 127 ? 1 : 0;
+  // Keep the canvas's anti-aliased coverage rather than thresholding it: a 0/1 mask snaps
+  // every contour to whole texels, which shows up as stair-steps on the diagonals.
+  for (let i = 0; i < w * h; i++) mask[i] = img[i * 4];
   return { mask, w, h, aspect: w / h };
 }
 
@@ -67,15 +69,16 @@ export function rasterText(lines, { w = 1024, h = 512, font = 'Syne', weight = 8
 export function edtSigned(mask, w, h) {
   const inside = new Float32Array(w * h), outside = new Float32Array(w * h);
   for (let i = 0; i < w * h; i++) {
-    inside[i] = mask[i] ? 0 : INF;     // distance to nearest inside pixel (for outside points)
-    outside[i] = mask[i] ? INF : 0;    // distance to nearest outside pixel (for inside points)
+    // Edge pixels seed both transforms with their sub-texel distance to the 50% coverage
+    // contour (as in mapbox/tiny-sdf), so the zero crossing lands between texels.
+    const a = mask[i] / 255;
+    if (a >= 1) { inside[i] = 0; outside[i] = INF; }
+    else if (a <= 0) { inside[i] = INF; outside[i] = 0; }
+    else { inside[i] = Math.max(0, 0.5 - a) ** 2; outside[i] = Math.max(0, a - 0.5) ** 2; }
   }
   edt(inside, w, h); edt(outside, w, h);
   const sdf = new Float32Array(w * h);
-  for (let i = 0; i < w * h; i++) {
-    const d = mask[i] ? -Math.sqrt(outside[i]) : Math.sqrt(inside[i]);
-    sdf[i] = (d - 0.5) / w;      // half-pixel shift so the zero crossing sits on the glyph edge
-  }
+  for (let i = 0; i < w * h; i++) sdf[i] = (Math.sqrt(inside[i]) - Math.sqrt(outside[i])) / w;
   return sdf;
 }
 
