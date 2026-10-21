@@ -52,27 +52,31 @@ body.ready #scene { opacity: 1; }
 .nav a:hover { color: #fff; }
 
 /* overlays */
-.ov { position: fixed; z-index: 10; opacity: 0; pointer-events: none; will-change: opacity, transform; }
+/* No will-change: a permanently promoted layer rasterises its text once and resamples it, which
+   reads soft. Centring below uses insets + auto margins, not translate(-50%), so text stays on whole pixels. */
+.ov { position: fixed; z-index: 10; opacity: 0; pointer-events: none; }
 .tag { display: block; font-size: .72rem; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; color: var(--w50); margin-bottom: 16px; }
-.hint { font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; color: var(--w20); margin-top: 28px; }
+.hint { font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; color: var(--w50); margin-top: 28px; }
 
 .ov { transform: translateY(var(--reveal-y, 0px)); }
-.ov-hero { left: 48px; bottom: 64px; max-width: 560px; }
-.ov-hero p { font-size: clamp(1rem, 1.6vw, 1.15rem); font-weight: 300; line-height: 1.65; color: var(--w80); }
+/* --notice-clear is the privacy notice's height while it is docked at the bottom (main.js);
+   bottom-anchored copy rises above it instead of sliding underneath. */
+.ov-hero { left: 48px; bottom: max(64px, calc(var(--notice-clear, 0px) + 20px)); max-width: 560px; }
+.ov-hero p { font-size: clamp(1rem, 1.6vw, 1.15rem); font-weight: 400; line-height: 1.65; color: var(--w80); }
 
-.ov-about { right: 48px; top: 50%; transform: translateY(-50%) translateY(var(--reveal-y, 0px)); width: min(460px, 44vw); }
+.ov-about { right: 48px; top: 0; bottom: 0; height: fit-content; margin-block: auto; width: min(460px, 44vw); }
 .ov-about h2 { font-family: var(--head); font-size: clamp(30px, 3.4vw, 44px); font-weight: 800; line-height: 1.05; letter-spacing: -.02em; margin-bottom: 22px; }
 .ov-about h2 em { font-style: italic; font-weight: 700; color: var(--w50); }
-.ov-about p { font-size: .95rem; font-weight: 300; line-height: 1.75; color: var(--w80); margin-bottom: 14px; }
+.ov-about p { font-size: .95rem; font-weight: 400; line-height: 1.75; color: var(--w80); margin-bottom: 14px; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .chips span { font-size: .74rem; padding: 6px 13px; border-radius: 100px; background: var(--w10); border: 1px solid var(--w20); color: var(--w80); backdrop-filter: blur(8px); }
 
-.ov-work { left: 48px; bottom: 64px; width: min(440px, 42vw); }
+.ov-work { left: 48px; bottom: max(64px, calc(var(--notice-clear, 0px) + 20px)); width: min(440px, 42vw); }
 #work-detail { transition: opacity .14s, transform .14s; }
 #work-detail.swap { opacity: 0; transform: translateY(6px); }
-#work-detail .num { font-size: .7rem; letter-spacing: .15em; color: var(--w20); margin-bottom: 10px; }
+#work-detail .num { font-size: .7rem; letter-spacing: .15em; color: var(--w50); margin-bottom: 10px; }
 #work-detail h3 { font-family: var(--head); font-size: clamp(1.7rem, 2.8vw, 2.4rem); font-weight: 800; letter-spacing: -.02em; margin-bottom: 12px; }
-#work-detail p { font-size: .92rem; font-weight: 300; line-height: 1.7; color: var(--w80); margin-bottom: 16px; }
+#work-detail p { font-size: .92rem; font-weight: 400; line-height: 1.7; color: var(--w80); margin-bottom: 16px; }
 #work-detail .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
 #work-detail .tags span { font-size: .66rem; letter-spacing: .08em; text-transform: uppercase; padding: 3px 10px; border-radius: 100px; background: var(--w10); border: 1px solid var(--w10); color: var(--w50); }
 #work-detail a { color: #fff; text-decoration: none; font-size: .85rem; border-bottom: 1px solid var(--w20); padding-bottom: 3px; transition: border-color .2s; }
@@ -81,26 +85,26 @@ body.ready #scene { opacity: 1; }
 .dots button { width: 26px; height: 4px; border-radius: 4px; border: 0; padding: 0; background: var(--w20); transition: background .25s, width .25s; }
 .dots button[aria-selected="true"] { background: #fff; width: 42px; }
 
-.ov-contact { left: 50%; bottom: 72px; transform: translateX(-50%) translateY(var(--reveal-y, 0px)); text-align: center; width: min(560px, 90vw); }
-.ov-contact p { font-size: .98rem; font-weight: 300; color: var(--w80); margin-bottom: 26px; }
+.ov-contact { left: 0; right: 0; margin-inline: auto; bottom: max(72px, calc(var(--notice-clear, 0px) + 20px)); text-align: center; width: min(560px, 90vw); }
+.ov-contact p { font-size: .98rem; font-weight: 400; color: var(--w80); margin-bottom: 26px; }
 .ov-contact .email { display: inline-block; color: #fff; text-decoration: none; font-size: clamp(1rem, 2.2vw, 1.3rem); padding-bottom: 6px; border-bottom: 1px solid var(--w20); margin-bottom: 26px; transition: border-color .2s; }
 .ov-contact .email:hover { border-color: #fff; }
 .socials a { color: var(--w50); text-decoration: none; font-size: .85rem; letter-spacing: .04em; }
 .socials a:hover { color: #fff; }
-.foot { margin-top: 40px; font-size: .7rem; letter-spacing: .08em; color: var(--w20); }
-.foot a { color: var(--w50); text-decoration: none; }
+.foot { margin-top: 40px; font-size: .7rem; letter-spacing: .08em; color: var(--w50); }
+.foot a { color: var(--w80); text-decoration: none; }
 .foot a:hover { color: #fff; }
 
 /* privacy notice */
 .notice[hidden] { display: none; }
-.notice { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 30; width: min(640px, calc(100vw - 32px)); display: flex; gap: 18px; align-items: center; flex-wrap: wrap; padding: 14px 18px; border-radius: 16px; background: rgba(20, 8, 48, .72); border: 1px solid var(--w20); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 20px 60px rgba(0,0,0,.4); animation: notice-in .5s ease .8s both; }
+.notice { position: fixed; left: 0; right: 0; margin-inline: auto; bottom: 18px; z-index: 30; width: min(640px, calc(100vw - 32px)); display: flex; gap: 18px; align-items: center; flex-wrap: wrap; padding: 14px 18px; border-radius: 16px; background: rgba(20, 8, 48, .72); border: 1px solid var(--w20); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 20px 60px rgba(0,0,0,.4); animation: notice-in .5s ease .8s both; }
 .notice p { flex: 1 1 300px; margin: 0; font-size: .82rem; line-height: 1.5; color: var(--w80); }
 .notice p a { color: #fff; }
 .notice-actions { display: flex; gap: 8px; }
 .notice button { font: inherit; font-size: .8rem; padding: 9px 14px; border-radius: 100px; border: 1px solid var(--w20); background: var(--w10); color: #fff; }
 .notice button.primary { background: #fff; color: #1a0040; border-color: #fff; }
 .notice button:hover { filter: brightness(1.1); }
-@keyframes notice-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes notice-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @keyframes notice-in-mobile { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .notice { animation: none; } }
 
@@ -123,11 +127,11 @@ body.no-gl { cursor: auto; }
   /* about/contact text sits over the same screen band the WebGL cluster text occupies at short
      viewport heights; a scrim card (matching .notice) keeps it legible instead of letters-on-letters */
   .ov-about, .ov-contact { background: rgba(10,4,26,.6); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--w10); border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.4); }
-  .ov-about { left: 22px; right: 22px; top: auto; bottom: 40px; transform: translateY(var(--reveal-y, 0px)); width: auto; padding: 20px 22px; }
+  .ov-about { left: 22px; right: 22px; top: auto; bottom: 40px; height: auto; margin: 0; width: auto; padding: 20px 22px; }
   .ov-about p:nth-of-type(2) { display: none; }
   .ov-contact { bottom: 48px; padding: 20px 24px; }
   .hint { display: none; }
-  .notice { top: 78px; bottom: auto; left: 16px; right: 16px; width: auto; transform: none; animation-name: notice-in-mobile; flex-direction: column; align-items: stretch; }
+  .notice { top: 78px; bottom: auto; left: 16px; right: 16px; margin: 0; width: auto; animation-name: notice-in-mobile; flex-direction: column; align-items: stretch; }
   .notice .notice-detail { display: none; }
   .notice p { flex: none; }   /* the base rule's flex-basis:300px sizes HEIGHT once flex-direction flips to column */
   .notice-actions { justify-content: flex-end; }

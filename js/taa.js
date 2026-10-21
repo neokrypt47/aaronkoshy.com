@@ -35,13 +35,59 @@ const RESOLVE = {
     uniform sampler2D tCur;        // half-res: rgb colour, a = distance along ray
     uniform sampler2D tHist;       // full-res accumulation
     uniform vec2  uCurTexel;       // 1 / half-res size
+    uniform vec2  uHistTexel;      // 1 / full-res size
     uniform vec3  uCamPos, uRight, uUp, uFwd;
     uniform vec3  uPrevPos, uPrevRight, uPrevUp, uPrevFwd;
     uniform float uTanFov, uAspect, uFeedback, uHistValid;
 
+    // Catmull-Rom history fetch (9 taps folded into bilinear ones). Plain bilinear
+    // re-filters the history every moving frame, and at 88% feedback that compounds into
+    // a visible blur while scrolling; this kernel keeps edges. Exact at texel centres, so
+    // a still camera reads the history back unchanged.
+    vec3 sampleHist(vec2 uv) {
+      vec2 pos = uv / uHistTexel;
+      vec2 p1 = floor(pos - 0.5) + 0.5;
+      vec2 f = pos - p1;
+      vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+      vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+      vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+      vec2 w3 = f * f * (-0.5 + 0.5 * f);
+      vec2 w12 = w1 + w2;
+      vec2 t0 = (p1 - 1.0) * uHistTexel, t3 = (p1 + 2.0) * uHistTexel;
+      vec2 t12 = (p1 + w2 / w12) * uHistTexel;
+      vec3 r = texture2D(tHist, vec2(t0.x,  t0.y)).rgb  * w0.x  * w0.y
+             + texture2D(tHist, vec2(t12.x, t0.y)).rgb  * w12.x * w0.y
+             + texture2D(tHist, vec2(t3.x,  t0.y)).rgb  * w3.x  * w0.y
+             + texture2D(tHist, vec2(t0.x,  t12.y)).rgb * w0.x  * w12.y
+             + texture2D(tHist, vec2(t12.x, t12.y)).rgb * w12.x * w12.y
+             + texture2D(tHist, vec2(t3.x,  t12.y)).rgb * w3.x  * w12.y
+             + texture2D(tHist, vec2(t0.x,  t3.y)).rgb  * w0.x  * w3.y
+             + texture2D(tHist, vec2(t12.x, t3.y)).rgb  * w12.x * w3.y
+             + texture2D(tHist, vec2(t3.x,  t3.y)).rgb  * w3.x  * w3.y;
+      return max(r, vec3(0.0));
+    }
+
+    // The march is jittered by uJit low-res pixels, so low-res texel i holds the scene at
+    // (i + 0.5 + uJit), not at its centre. Fetch the sample that actually landed nearest
+    // this output pixel and weight it by how near it landed: a sample on top of the pixel
+    // counts fully, one a pixel away barely. Bilinear upsampling instead treated every
+    // sample as if it sat on the texel centre, which smeared each frame over two output
+    // pixels and left the accumulated name soft and stair-stepped.
+    uniform vec2 uJit;
+    float nearestSample(vec2 uv, out vec2 suv) {
+      vec2 pl = uv / uCurTexel - uJit;                // output pixel in un-jittered low-res texel space
+      vec2 i = floor(pl);
+      suv = (i + 0.5) * uCurTexel;
+      vec2 d = (pl - i - 0.5) * (uCurTexel / uHistTexel);   // in output pixels
+      return exp(-3.0 * dot(d, d));
+    }
+
     void main() {
       vec4 cur = texture2D(tCur, vUv);
+      vec2 suv;
+      float sw = nearestSample(vUv, suv);
       vec3 c = cur.rgb;
+      vec3 cs = texture2D(tCur, suv).rgb;
 
       // Rebuild this pixel's ray using the same convention as the scene shader, where
       // uv.y spans [-1,1] and uv.x spans [-aspect, aspect].
@@ -63,15 +109,24 @@ const RESOLVE = {
         // Clamp history into the colour range of the current neighbourhood. Without this
         // the reprojection drags colour across silhouettes and the glass smears — the
         // usual TAA ghosting, and worse here because the shading is all refraction.
-        vec3 mn = c, mx = c;
-        vec3 n1 = texture2D(tCur, vUv + vec2(uCurTexel.x, 0.0)).rgb;
-        vec3 n2 = texture2D(tCur, vUv - vec2(uCurTexel.x, 0.0)).rgb;
-        vec3 n3 = texture2D(tCur, vUv + vec2(0.0, uCurTexel.y)).rgb;
-        vec3 n4 = texture2D(tCur, vUv - vec2(0.0, uCurTexel.y)).rgb;
+        vec3 mn = min(c, cs), mx = max(c, cs);
+        vec3 n1 = texture2D(tCur, suv + vec2(uCurTexel.x, 0.0)).rgb;
+        vec3 n2 = texture2D(tCur, suv - vec2(uCurTexel.x, 0.0)).rgb;
+        vec3 n3 = texture2D(tCur, suv + vec2(0.0, uCurTexel.y)).rgb;
+        vec3 n4 = texture2D(tCur, suv - vec2(0.0, uCurTexel.y)).rgb;
         mn = min(mn, min(min(n1, n2), min(n3, n4)));
         mx = max(mx, max(max(n1, n2), max(n3, n4)));
-        vec3 hist = clamp(texture2D(tHist, h).rgb, mn, mx);
-        c = mix(c, hist, w);
+        vec3 raw = sampleHist(h);
+        vec3 hist = clamp(raw, mn, mx);
+        // 4x keeps the average refresh rate near where plain (1 - feedback) put it: across
+        // a jitter cycle the mean sample weight is about 0.25 at half res.
+        float a = clamp((1.0 - w) * sw * 4.0, 0.0, 1.0);
+        // Where the clamp had to pull history in, the content is moving (the glass breathes)
+        // and history is mostly being discarded, so nearest-sample weighting would show the
+        // half-res grid. Fall back to the plain bilinear blend there; the static name keeps
+        // the sharp path.
+        float moving = clamp(length(raw - hist) * 6.0, 0.0, 1.0);
+        c = mix(mix(hist, cs, a), mix(c, hist, w), moving);
       }
       gl_FragColor = vec4(c, 1.0);
     }
@@ -99,7 +154,7 @@ export class TAAPass extends Pass {
       vertexShader: RESOLVE.vertexShader,
       fragmentShader: RESOLVE.fragmentShader,
       uniforms: {
-        tCur: { value: null }, tHist: { value: null }, uCurTexel: { value: new THREE.Vector2() },
+        tCur: { value: null }, tHist: { value: null }, uCurTexel: { value: new THREE.Vector2() }, uHistTexel: { value: new THREE.Vector2() }, uJit: { value: new THREE.Vector2() },
         uCamPos: { value: new THREE.Vector3() }, uRight: { value: new THREE.Vector3() },
         uUp: { value: new THREE.Vector3() }, uFwd: { value: new THREE.Vector3() },
         uPrevPos: { value: new THREE.Vector3() }, uPrevRight: { value: new THREE.Vector3() },
@@ -130,6 +185,8 @@ export class TAAPass extends Pass {
     this.low.setSize(lw, lh);
     this.hist[0].setSize(w, h); this.hist[1].setSize(w, h);
     this.material.uniforms.uCurTexel.value.set(1 / lw, 1 / lh);
+    this.material.uniforms.uHistTexel.value.set(1 / w, 1 / h);
+    this.w = w; this.h = h;
     this.valid = 0;                                     // history is meaningless at a new size
   }
 
@@ -137,6 +194,14 @@ export class TAAPass extends Pass {
   // this whenever `this.scene`'s content changes discontinuously (e.g. a material swap) so
   // the neighborhood clamp doesn't smear the old shading into the new frame.
   invalidate() { this.valid = 0; }
+
+  // Switches the march resolution in place (main.js marches at full res while the page is
+  // still: the glass never stops moving, so half-res history alone never resolves the name).
+  setRatio(r) {
+    if (r === this.ratio) return;
+    this.ratio = r;
+    if (this.w) this.setSize(this.w, this.h);
+  }
 
   render(renderer, writeBuffer) {
     const u = this.material.uniforms;
@@ -147,6 +212,8 @@ export class TAAPass extends Pass {
     const j = JITTER[this.frame % JITTER.length];
     this.u.uJitter.value.set(j[0], j[1]);
     this.u.uRes.value.set(lw, lh);
+    this.u.uAAPx.value = this.ratio;
+    u.uJit.value.set(j[0], j[1]);
 
     const prevTarget = renderer.getRenderTarget();
     renderer.setRenderTarget(this.low);

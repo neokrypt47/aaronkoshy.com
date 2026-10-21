@@ -4,11 +4,9 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
-import { VERT, FRAG, FRAG_FAST } from './shaders.js';
-import { TAAPass } from './taa.js';
-import { rasterText, edtSigned, toHalf } from './sdf.js';
+import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261021c';
+import { TAAPass } from './taa.js?v=20261021c';
+import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261021c';
 
 // ── Preloader ──
 // Driven by the same marks ?debug reports, so it tracks real work rather than a timer.
@@ -77,11 +75,22 @@ try {
     window.swetrix?.trackViews();
   }
 } catch {}
+let framingDirty = true;   // see computeFraming(): overlay rects changed, re-aim the camera
 (() => {
   const el = document.getElementById('notice');
   if (!el || store.get('ak-notice')) return;
   el.hidden = false;
-  const close = () => { el.hidden = true; store.set('ak-notice', '1'); };
+  // While the notice is docked along the bottom it sits over the bottom-anchored copy (the
+  // contact footer, the hero hint), so publish its height and let style.css lift them clear.
+  const root = document.documentElement.style;
+  const clear = () => {
+    const docked = !el.hidden && getComputedStyle(el).bottom !== 'auto';
+    root.setProperty('--notice-clear', docked ? `${el.offsetHeight + 18}px` : '0px');
+    framingDirty = true;
+  };
+  new ResizeObserver(clear).observe(el);
+  window.addEventListener('resize', clear);
+  const close = () => { el.hidden = true; store.set('ak-notice', '1'); clear(); };
   document.getElementById('notice-ok')?.addEventListener('click', close);
   document.getElementById('notice-optout')?.addEventListener('click', () => { store.set('swetrix.disabled', '1'); close(); });
 })();
@@ -165,7 +174,7 @@ document.querySelectorAll('a, button').forEach(el => {
   el.addEventListener('pointerleave', () => cring?.classList.remove('hover'));
 });
 
-// ── Interaction tracking: adaptive scale while interacting, full res at 30 fps when still ──
+// ── Interaction tracking: adaptive scale while interacting, sharper at 30 fps when still ──
 let lastInput = performance.now();
 const noteInput = () => { lastInput = performance.now(); };
 ['pointermove', 'pointerdown', 'wheel', 'touchmove', 'keydown', 'scroll'].forEach(ev => window.addEventListener(ev, noteInput, { passive: true }));
@@ -195,8 +204,10 @@ function cameraFor(prog) {
   // dwell: hold at k for f<0.3, travel 0.3..0.7, hold at k+1 after
   const tr = smooth(0.28, 0.72, f);
   const a = CLUSTERS[k].center, b = CLUSTERS[k + 1].center;
-  const look = new THREE.Vector3().lerpVectors(a, b, Math.min(1, tr * 1.6));   // turn toward the next cluster early
-  const pos = new THREE.Vector3().lerpVectors(a, b, tr).add(new THREE.Vector3(0, 0.9, CAM_DIST));
+  const fa = CLUSTERS[k].frame, fb = CLUSTERS[k + 1].frame, lt = Math.min(1, tr * 1.6);
+  const look = new THREE.Vector3().lerpVectors(a, b, lt);   // turn toward the next cluster early
+  look.x += lerp(fa.x, fb.x, lt); look.y += lerp(fa.y, fb.y, lt);
+  const pos = new THREE.Vector3().lerpVectors(a, b, tr).add(new THREE.Vector3(lerp(fa.x, fb.x, tr), 0.9 + lerp(fa.y, fb.y, tr), lerp(fa.d, fb.d, tr)));
   // swing wide toward the next cluster's side and climb, so the current liquid glides past beside/below us
   const dir = Math.sign(b.x - a.x) || 1;
   const arc = Math.sin(tr * Math.PI);
@@ -206,9 +217,64 @@ function cameraFor(prog) {
   return { pos, look, k, f, tr, near: tr < 0.5 ? k : k + 1, presA, presB };
 }
 
+// ── Framing: keep each cluster clear of its copy ──
+// The clusters sit at fixed world positions but the copy is laid out by CSS, so on narrower
+// or shorter screens the glass slid under the text (and on phones the name ran off both
+// edges). Measure where each overlay actually sits, then aim the camera so the cluster's
+// glass core fits the largest clear region beside it — left of, right of or above the copy
+// — backing off from CAM_DIST only as far as that needs. The camera slides rather than turns
+// (turning swings the studio softboxes into view), so a region far off-centre is skipped:
+// the glass would be seen so obliquely that its flank shows and the lettering refracts away.
+// FIT is the core's half-extent in world units (the drips may still wander over the copy).
+const FIT = { hero: [8.0, 4.9], about: [7.0, 3.6], work: [9.2, 2.6], contact: [7.4, 4.6] };
+const TAN_FOV = Math.tan(THREE.MathUtils.degToRad(mobile ? 34 : 26));
+CLUSTERS.forEach(c => { c.frame = { x: 0, y: 0, d: CAM_DIST }; });
+function computeFraming() {
+  framingDirty = false;
+  const vw = innerWidth, vh = innerHeight, gap = 28;
+  const top = ($('.nav')?.getBoundingClientRect().bottom ?? 0) + 8;
+  // Side regions keep off the screen edges and stop above a bottom-docked privacy notice.
+  const L = 16, R = vw - 16;
+  const B = vh - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--notice-clear')) || 0) - 8;
+  const ovs = { hero: '.ov-hero', about: '.ov-about', work: '.ov-work', contact: '.ov-contact' };
+  for (const c of CLUSTERS) {
+    // Phones put work in its own pulled-in camera (see frame()); about/contact copy sits on
+    // a scrim card there, so only make sure the glass fits the screen's width.
+    if (mobile && c.id === 'work') { c.frame = { x: 0, y: 0, d: CAM_DIST }; continue; }
+    const r = $(ovs[c.id]).getBoundingClientRect();
+    const regions = mobile && c.id !== 'hero'
+      ? [[L, top, R, vh, true]]
+      : [[L, top, r.left - gap, B], [r.right + gap, top, R, B], [L, top, R, r.top - gap, true]];
+    const [fw, fh] = FIT[c.id];
+    let best = null, above = null;
+    for (const [x0, y0, x1, y1, isAbove] of regions) {
+      // uv spans 2 units over the viewport height, so a region's half-extent is px / vh.
+      const cand = { need: Math.max(fw / (TAN_FOV * (x1 - x0) / vh), fh / (TAN_FOV * (y1 - y0) / vh)), cx: (x0 + x1 - vw) / vh, cy: -(y0 + y1 - vh) / vh };
+      if (isAbove && y1 - y0 >= 80) above = cand;
+      if (x1 - x0 < 80 || y1 - y0 < 80 || Math.abs(cand.cx) > 1.0) continue;
+      if (!best || cand.need < best.need) best = cand;
+    }
+    const DMAX = CAM_DIST * 2.2;
+    // Nothing fits beside the copy (a short screen): stack the glass above it rather than
+    // pushing it to a side strip, where the steep off-axis view shows the slab's flank and
+    // refracts the lettering away.
+    if (above && (!best || best.need > DMAX)) best = above;
+    if (!best) { c.frame = { x: 0, y: 0, d: CAM_DIST }; continue; }
+    const d = clamp(best.need, CAM_DIST, DMAX);
+    // On a very short screen nothing fits beside the copy at the distance cap; then keep the
+    // glass whole on screen (overlapping the copy a little) rather than cropped off an edge.
+    const hw = fw / (d * TAN_FOV), hh = fh / (d * TAN_FOV), aspect = vw / vh, topUv = 1 - 2 * top / vh;
+    const cx = hw < aspect ? clamp(best.cx, -aspect + hw, aspect - hw) : 0;
+    const cy = hh < (topUv + 1) / 2 ? clamp(best.cy, -1 + hh, topUv - hh) : 0;
+    c.frame = { x: -cx * d * TAN_FOV, y: -cy * d * TAN_FOV, d };
+  }
+}
+window.addEventListener('resize', () => { framingDirty = true; });
+document.fonts?.ready.then(() => { framingDirty = true; });
+
 // ── Renderer ──
 const canvas = $('#scene');
-let renderer, composer, bloom, fxaa, material, uniforms, scene, cam, taa, quad;
+let renderer, composer, bloom, material, uniforms, scene, cam, taa, quad;
 // Progressive shader swap: `material`/`quad` start on the cheap FRAG_FAST variant so the
 // page paints and is interactive almost immediately; the full FRAG shader compiles in the
 // background (started once a few real frames have rendered) and is swapped in on a frame
@@ -216,7 +282,9 @@ let renderer, composer, bloom, fxaa, material, uniforms, scene, cam, taa, quad;
 // GLSL variant — not just lower runtime uSteps/uISteps — is what actually compiles fast.
 let fullMaterial = null, fullReady = false, fullCompileStarted = false;
 const DPR = Math.min(devicePixelRatio || 1, 2);
-let scale = FORCE_SCALE ?? (mobile ? DPR * 0.55 : DPR * 0.85);   // drawing-buffer px per CSS px
+// Desktop draws at native DPR: at 0.85 the browser stretched the canvas back up to the screen,
+// which softened every edge on top of TAA's half-res march.
+let scale = FORCE_SCALE ?? (mobile ? DPR * 0.55 : DPR);   // drawing-buffer px per CSS px
 const targetScale = scale;
 
 function hasWebGL2() { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } }
@@ -239,7 +307,7 @@ async function buildTextures() {
   try { await document.fonts.load('800 200px Syne'); } catch {}
   T.mark('fonts');
   let worker = null;
-  try { worker = new Worker(new URL('./sdf-worker.js', import.meta.url), { type: 'module' }); } catch {}
+  try { worker = new Worker(new URL('./sdf-worker.js?v=20261021c', import.meta.url), { type: 'module' }); } catch {}
   const pending = new Map();
   if (worker) worker.onmessage = e => { const p = pending.get(e.data.id); if (p) { pending.delete(e.data.id); p(e.data); } };
   // Instant low-res hero field (~20 ms on the main thread) so the first frame never waits on the worker.
@@ -301,7 +369,7 @@ async function init() {
 
   uniforms = {
     uRes: { value: new THREE.Vector2() }, uTime: { value: 0 },
-    uCamPos: { value: new THREE.Vector3() }, uCamMat: { value: new THREE.Matrix3() }, uTanFov: { value: Math.tan(THREE.MathUtils.degToRad(mobile ? 34 : 26)) },
+    uCamPos: { value: new THREE.Vector3() }, uCamMat: { value: new THREE.Matrix3() }, uTanFov: { value: TAN_FOV },
     uBlobs: { value: Array.from({ length: 36 }, () => new THREE.Vector4(0, 0, 0, 0)) }, uNB: { value: 0 },
     uCursor: { value: new THREE.Vector4(0, 0, 0, 0) },
     uCoreA: { value: new THREE.Vector3() }, uCoreAHalf: { value: new THREE.Vector3(1, 1, 1) }, uCoreAOn: { value: 0 },
@@ -313,7 +381,19 @@ async function init() {
     uSlab: { value: SLAB_X.map(x => new THREE.Vector4(CLUSTERS[2].x + x, CLUSTERS[2].y, CLUSTERS[2].z + 0.55, 0)) }, uSlabHalf: { value: SLAB_HALF }, uSlabOn: { value: 0 }, uSlabScale: { value: 1 }, uAtlas: { value: atlas },
     uIor: { value: 1.27 }, uAbsorb: { value: new THREE.Vector3(0.10, 0.17, 0.025) }, uDisp: { value: mobile ? 0 : 0.012 },
     uSteps: { value: mobile ? 64 : 96 }, uISteps: { value: mobile ? 36 : 56 },
-    uJitter: { value: new THREE.Vector2() },
+    uJitter: { value: new THREE.Vector2() }, uAAPx: { value: 1 },
+    // Tunable look constants — defaults match the original hardcoded shader values.
+    // Live-editable from the dev tune panel (js/tune.js, ?tune on localhost).
+    uSkyLow: { value: new THREE.Vector3(0.05, 0.03, 0.14) }, uSkyHigh: { value: new THREE.Vector3(0.16, 0.035, 0.30) },
+    uFloorGlow: { value: new THREE.Vector3(0.16, 0.06, 0.30) }, uHorizonColor: { value: new THREE.Vector3(0.30, 0.12, 0.55) },
+    uSb0Color: { value: new THREE.Vector3(1.0, 0.82, 1.0) }, uSb0I: { value: 3.2 },
+    uSb1Color: { value: new THREE.Vector3(0.45, 0.72, 1.0) }, uSb1I: { value: 2.4 },
+    uSb2Color: { value: new THREE.Vector3(0.9, 0.4, 1.0) }, uSb2I: { value: 1.2 },
+    uTextColor: { value: new THREE.Vector3(1.0, 0.97, 1.0) },
+    uTIRColor: { value: new THREE.Vector3(0.42, 0.22, 0.70) },
+    uGlowColor: { value: new THREE.Vector3(0.30, 0.10, 0.55).multiplyScalar(0.35) },
+    uHaloMin: { value: 0.30 }, uHaloRange: { value: 0.6 },
+    uVignette: { value: 0.35 },
   };
   // Cheap variant first: compiles fast (small compile-time loop bounds, see shaders.js),
   // so the page can paint and become interactive without waiting on the full shader.
@@ -333,9 +413,8 @@ async function init() {
   else composer.addPass(new RenderPass(scene, cam));
   bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.3, 0.3, 1.1);
   composer.addPass(bloom);
+  // No FXAA: TAA already resolves the edges, and FXAA on top only blurred the name.
   composer.addPass(new OutputPass());
-  fxaa = new ShaderPass(FXAAShader);
-  composer.addPass(fxaa);
   applySize();
   await renderer.compileAsync(scene, cam);   // cheap FRAG_FAST — fast even on a cold driver cache
   T.mark('shader');
@@ -386,7 +465,6 @@ function applySize() {
   composer.setPixelRatio(1);
   composer.setSize(w, h);
   uniforms.uRes.value.set(w, h);
-  if (fxaa) fxaa.material.uniforms.resolution.value.set(1 / w, 1 / h);
 }
 
 // ── Physics ──
@@ -480,12 +558,14 @@ function updateOverlays(prog) {
 }
 const workDetail = $('#work-detail');
 let shownCard = -1, hoverCard = -1, activeCard = 0;
-function showCard(i) {
+// `instant` fills the panel synchronously: used once at load so the work overlay has its
+// real height before computeFraming() measures it.
+function showCard(i, instant = false) {
   if (i === shownCard) return;
   shownCard = i;
   const c = cards[i];
-  workDetail.classList.add('swap');
-  setTimeout(() => {
+  if (!instant) workDetail.classList.add('swap');
+  const fill = () => {
     workDetail.innerHTML = `<div class="num">0${i + 1}</div><h3>${c.title}</h3><p>${c.blurb}</p>
       <div class="tags">${c.tags.map(t => `<span>${t}</span>`).join('')}</div>
       <a href="${c.href}" target="_blank" rel="noopener" class="project-link">${c.link}</a>
@@ -497,8 +577,10 @@ function showCard(i) {
       el.addEventListener('pointerleave', () => cring?.classList.remove('hover'));
     });
     workDetail.classList.remove('swap');
-  }, 140);
+  };
+  if (instant) fill(); else setTimeout(fill, 140);
 }
+showCard(0, true);
 function gotoCard(i) {
   const max = document.documentElement.scrollHeight - innerHeight;
   const k = 2;                                                       // work cluster index
@@ -535,12 +617,16 @@ if (DEBUG) {
 //
 // The cost model is only fed while interacting, where every rAF callback renders and
 // the interval is an honest measure of GPU cost. While idle we cap at 30 fps, which
-// makes the interval meaningless — so we hold the scale we learned rather than
-// throwing it away and starting over on the next pointer move.
+// makes the interval meaningless — so we keep the scale we learned for the next pointer
+// move rather than starting over. While still, though, a slow frame costs nothing, so we
+// spend a bigger budget on resolution: the letters sharpen as soon as the visitor stops,
+// and the learned interactive scale comes back on the next input.
 const BUDGET_MS = 33;                              // target frame time while interacting
+const IDLE_BUDGET_MS = 50;                         // still: the 30 fps cap already hides this
 const SCALE_FLOOR = Math.min(0.5, targetScale);    // below this the letters go soft
 const ADAPT_EVERY = 300;                           // ms between adjustments
 let msPerPx = 0, lastAdapt = 0, renderedRun = 0, adapts = 0;
+let idleRes = false, activeScale = scale, slowIdle = 0;
 
 // Console handles for profiling. Behind ?debug so a normal page load exposes no globals
 // and hands out no references to the renderer. Note that the ?debug overlay itself costs
@@ -549,10 +635,24 @@ let msPerPx = 0, lastAdapt = 0, renderedRun = 0, adapts = 0;
 if (DEBUG) {
   window.__gl = () => ({ renderer, composer, scene, cam, uniforms, material, taa, quad, fullMaterial, fullReady });
   window.__perf = () => ({
-    scale, targetScale, floor: SCALE_FLOOR, frameMs, msPerPx, adapts,
+    scale, targetScale, activeScale, idleRes, marchRatio: taa?.ratio, floor: SCALE_FLOOR, frameMs, msPerPx, adapts,
     passes: composer?.passes.map(p => p.constructor.name),
     canvas: renderer && [renderer.domElement.width, renderer.domElement.height],
   });
+}
+
+// Never below the interactive scale; up to native DPR when the cost model says it fits.
+// No model yet means frames never exceeded vsync, so the interactive target is already cheap.
+function idleScale() {
+  if (!msPerPx) return targetScale;
+  return clamp(Math.sqrt((IDLE_BUDGET_MS / msPerPx) / (innerWidth * innerHeight)), activeScale, DPR);
+}
+
+// Full-res march costs 4x a half-res one (msPerPx is per drawing-buffer pixel, and TAA
+// marches a quarter of them). No model yet means frames stayed under vsync, so try it and
+// let the watchdog in frame() back off if it turns out too slow.
+function idleFullMarch() {
+  return !msPerPx || 4 * msPerPx * innerWidth * innerHeight * targetScale * targetScale <= IDLE_BUDGET_MS;
 }
 
 function adaptScale() {
@@ -567,7 +667,14 @@ function adaptScale() {
   msPerPx = msPerPx ? lerp(msPerPx, frameMs / pixels, 0.3) : frameMs / pixels;
   let want = Math.sqrt((BUDGET_MS / msPerPx) / (innerWidth * innerHeight));
   want = clamp(want, SCALE_FLOOR, targetScale);
-  want = clamp(want, scale * 0.6, scale * 1.4);                 // damp: one bad frame can't slam it
+  // The ±40%-per-step damp below is meant to stop one bad frame from slamming the scale
+  // down — but on a genuinely weak/throttled device, the *starting* scale can be several
+  // times too expensive, and damping the very first correction then means each of several
+  // still-too-slow intermediate frames is itself a multi-second long task while it ratchets
+  // down (measured: a real Moto G Power PageSpeed run took ~8 halving steps, each its own
+  // multi-second main-thread block, to converge). Let the first correction jump straight to
+  // the computed value; damp normally after that once the scale is in the right neighborhood.
+  if (adapts > 1) want = clamp(want, scale * 0.6, scale * 1.4);
   if (Math.abs(want - scale) > scale * 0.04) { scale = want; applySize(); }
 }
 
@@ -608,10 +715,31 @@ function frame(now) {
   if (!interacting && !FORCE_SCALE) {
     if (now - lastRender < 31) { requestAnimationFrame(frame); return; }
     renderedRun = 0;
+    if (!idleRes) {
+      idleRes = true; activeScale = scale; slowIdle = 0;
+      const full = !!taa && idleFullMarch();
+      taa?.setRatio(full ? 1 : 0.5);
+      const s = full ? targetScale : idleScale();
+      if (Math.abs(s - scale) > scale * 0.04) { scale = s; applySize(); }
+    } else if (taa?.ratio === 1) {
+      // rAF interval is the GPU cost here; several slow still frames in a row means the
+      // full-res march does not fit, so settle for the half-res one.
+      slowIdle = realMs > IDLE_BUDGET_MS * 1.3 ? slowIdle + 1 : 0;
+      if (slowIdle >= 5) taa.setRatio(0.5);
+    }
   } else {
+    if (idleRes) {
+      idleRes = false;
+      taa?.setRatio(0.5);
+      if (scale !== activeScale) { scale = activeScale; applySize(); }
+    }
     // Measure whenever the loop is running flat out, even under ?scale= — the forced
     // case is exactly when you want to read the cost of a scale you picked by hand.
-    if (frames > 5 && renderedRun > 0) frameMs = lerp(frameMs, realMs, 0.15);   // GPU-bound cost shows up as rAF interval
+    // Converge fast before the first adaptScale() call (adapts===0): a slow 0.15 EMA
+    // starting from the optimistic 16ms initial guess means adaptScale's first correction
+    // is computed from a frameMs that's still mostly "16", understating a genuinely weak
+    // device's real cost and needing several more (individually slow) frames to catch up.
+    if (frames > 5 && renderedRun > 0) frameMs = lerp(frameMs, realMs, adapts === 0 ? 0.6 : 0.15);   // GPU-bound cost shows up as rAF interval
     renderedRun++;
     if (!FORCE_SCALE && now - lastAdapt > ADAPT_EVERY && renderedRun > 3) { adaptScale(); lastAdapt = now; }
   }
@@ -619,6 +747,7 @@ function frame(now) {
 
   readScroll();
   p = reduce ? pRaw : lerp(p, pRaw, Math.min(1, dt * 7));
+  if (framingDirty) computeFraming();
   const cam = cameraFor(p);
   nearK = cam.near;
 
