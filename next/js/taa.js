@@ -67,9 +67,27 @@ const RESOLVE = {
       return max(r, vec3(0.0));
     }
 
+    // The march is jittered by uJit low-res pixels, so low-res texel i holds the scene at
+    // (i + 0.5 + uJit), not at its centre. Fetch the sample that actually landed nearest
+    // this output pixel and weight it by how near it landed: a sample on top of the pixel
+    // counts fully, one a pixel away barely. Bilinear upsampling instead treated every
+    // sample as if it sat on the texel centre, which smeared each frame over two output
+    // pixels and left the accumulated name soft and stair-stepped.
+    uniform vec2 uJit;
+    float nearestSample(vec2 uv, out vec2 suv) {
+      vec2 pl = uv / uCurTexel - uJit;                // output pixel in un-jittered low-res texel space
+      vec2 i = floor(pl);
+      suv = (i + 0.5) * uCurTexel;
+      vec2 d = (pl - i - 0.5) * (uCurTexel / uHistTexel);   // in output pixels
+      return exp(-3.0 * dot(d, d));
+    }
+
     void main() {
       vec4 cur = texture2D(tCur, vUv);
+      vec2 suv;
+      float sw = nearestSample(vUv, suv);
       vec3 c = cur.rgb;
+      vec3 cs = texture2D(tCur, suv).rgb;
 
       // Rebuild this pixel's ray using the same convention as the scene shader, where
       // uv.y spans [-1,1] and uv.x spans [-aspect, aspect].
@@ -91,15 +109,24 @@ const RESOLVE = {
         // Clamp history into the colour range of the current neighbourhood. Without this
         // the reprojection drags colour across silhouettes and the glass smears — the
         // usual TAA ghosting, and worse here because the shading is all refraction.
-        vec3 mn = c, mx = c;
-        vec3 n1 = texture2D(tCur, vUv + vec2(uCurTexel.x, 0.0)).rgb;
-        vec3 n2 = texture2D(tCur, vUv - vec2(uCurTexel.x, 0.0)).rgb;
-        vec3 n3 = texture2D(tCur, vUv + vec2(0.0, uCurTexel.y)).rgb;
-        vec3 n4 = texture2D(tCur, vUv - vec2(0.0, uCurTexel.y)).rgb;
+        vec3 mn = min(c, cs), mx = max(c, cs);
+        vec3 n1 = texture2D(tCur, suv + vec2(uCurTexel.x, 0.0)).rgb;
+        vec3 n2 = texture2D(tCur, suv - vec2(uCurTexel.x, 0.0)).rgb;
+        vec3 n3 = texture2D(tCur, suv + vec2(0.0, uCurTexel.y)).rgb;
+        vec3 n4 = texture2D(tCur, suv - vec2(0.0, uCurTexel.y)).rgb;
         mn = min(mn, min(min(n1, n2), min(n3, n4)));
         mx = max(mx, max(max(n1, n2), max(n3, n4)));
-        vec3 hist = clamp(sampleHist(h), mn, mx);
-        c = mix(c, hist, w);
+        vec3 raw = sampleHist(h);
+        vec3 hist = clamp(raw, mn, mx);
+        // 4x keeps the average refresh rate near where plain (1 - feedback) put it: across
+        // a jitter cycle the mean sample weight is about 0.25 at half res.
+        float a = clamp((1.0 - w) * sw * 4.0, 0.0, 1.0);
+        // Where the clamp had to pull history in, the content is moving (the glass breathes)
+        // and history is mostly being discarded, so nearest-sample weighting would show the
+        // half-res grid. Fall back to the plain bilinear blend there; the static name keeps
+        // the sharp path.
+        float moving = clamp(length(raw - hist) * 6.0, 0.0, 1.0);
+        c = mix(mix(hist, cs, a), mix(c, hist, w), moving);
       }
       gl_FragColor = vec4(c, 1.0);
     }
@@ -127,7 +154,7 @@ export class TAAPass extends Pass {
       vertexShader: RESOLVE.vertexShader,
       fragmentShader: RESOLVE.fragmentShader,
       uniforms: {
-        tCur: { value: null }, tHist: { value: null }, uCurTexel: { value: new THREE.Vector2() }, uHistTexel: { value: new THREE.Vector2() },
+        tCur: { value: null }, tHist: { value: null }, uCurTexel: { value: new THREE.Vector2() }, uHistTexel: { value: new THREE.Vector2() }, uJit: { value: new THREE.Vector2() },
         uCamPos: { value: new THREE.Vector3() }, uRight: { value: new THREE.Vector3() },
         uUp: { value: new THREE.Vector3() }, uFwd: { value: new THREE.Vector3() },
         uPrevPos: { value: new THREE.Vector3() }, uPrevRight: { value: new THREE.Vector3() },
@@ -185,6 +212,8 @@ export class TAAPass extends Pass {
     const j = JITTER[this.frame % JITTER.length];
     this.u.uJitter.value.set(j[0], j[1]);
     this.u.uRes.value.set(lw, lh);
+    this.u.uAAPx.value = this.ratio;
+    u.uJit.value.set(j[0], j[1]);
 
     const prevTarget = renderer.getRenderTarget();
     renderer.setRenderTarget(this.low);

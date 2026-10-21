@@ -45,6 +45,7 @@ uniform float uDisp;
 uniform int   uSteps;
 uniform int   uISteps;
 uniform vec2  uJitter;   // sub-pixel ray offset, in render pixels (temporal upsampling)
+uniform float uAAPx;     // width of one OUTPUT pixel in render pixels (TAA march ratio; 1 without TAA)
 
 // ── Tunable look constants (defaults match the original hand-picked values exactly;
 // exposed as uniforms only so the live tune panel — js/tune.js, dev-only — can drag
@@ -196,18 +197,32 @@ vec3 shadeSolid(vec3 p, int id, vec3 rd) {
   return vec3(0.82, 0.78, 1.0) * (0.9 + 0.8 * hov) * dif;
 }
 
-// March inside the glass from p along rr until we exit or hit a solid.
-vec3 marchInside(vec3 p, vec3 rr) {
+// March inside the glass from p along rr until we exit or hit a solid. t0 is the distance
+// the ray already travelled to reach p, which sets the pixel footprint for the name's edge.
+vec3 marchInside(vec3 p, vec3 rr, float t0) {
   float tt = 0.02; vec3 q = p + rr * tt; int sid = -1; bool exited = false;
   float nearText = 10.0;
+  // Name edges get analytic coverage instead of a hit/miss step: a ray passing within one
+  // output pixel of a letter records how much of that pixel the letter covers and carries
+  // on to find what lies behind it, and the two are blended at the end. Without this the
+  // edges only antialias through TAA's half-res history, which reads as soft stair-steps.
+  float pxA = 2.0 * uTanFov / uRes.y * uAAPx;
+  float cov = 0.0, covT = 0.0; vec3 covQ = q;
   for (int i = 0; i < __IM_STEPS__; i++) {
     if (i >= uISteps) break;
     float dl = -sdLiquid(q);
     int id; float ds = sdSolid(q, id);
-    if (id == 0) nearText = min(nearText, ds);
-    if (ds < 0.002) { sid = id; break; }
+    float adv = ds;
+    if (id == 0) {
+      nearText = min(nearText, ds);
+      float pw = pxA * (t0 + tt);
+      float c = clamp(0.5 - ds / pw, 0.0, 1.0);
+      if (c >= 1.0) { sid = 0; cov = 0.0; break; }
+      if (c > cov) { cov = c; covT = tt; covQ = q; }
+      adv = max(ds, pw * 0.5);            // skim past the edge band rather than stopping in it
+    } else if (ds < 0.002) { sid = id; break; }
     if (dl < 0.002) { exited = true; break; }
-    tt += max(min(dl, ds) * 0.9, 0.01);
+    tt += max(min(dl, adv) * 0.9, 0.01);
     q = p + rr * tt;
     if (tt > 40.0) { exited = true; break; }
   }
@@ -236,7 +251,12 @@ vec3 marchInside(vec3 p, vec3 rr) {
     if (tir) col = mix(col, uTIRColor, 0.55);        // TIR reads as tinted glass, not a dark seam
     col *= mix(uHaloMin, 1.0, smoothstep(0.0, uHaloRange, nearText));       // soft dark halo hugging the letters
   }
-  return col * absorb + glow;
+  col = col * absorb + glow;
+  if (cov > 0.0) {
+    vec3 tc = shadeSolid(covQ, 0, rr) * exp(-uAbsorb * covT) + uGlowColor * (1.0 - exp(-covT * 0.22));
+    col = mix(col, tc, cov);
+  }
+  return col;
 }
 
 // Ray vs sphere; returns entry/exit distances, false on miss.
@@ -274,7 +294,7 @@ void main() {
   if (ha) { tStart = min(tStart, max(ta0, 0.0)); tEnd = max(tEnd, ta1); }
   if (hb) { tStart = min(tStart, max(tb0, 0.0)); tEnd = max(tEnd, tb1); }
   if (sdLiquid(ro) < 0.0) {
-    col = marchInside(ro, rd);
+    col = marchInside(ro, rd, 0.0);
     hitT = 0.0;
   } else if (!ha && !hb) {
     col = bg;
@@ -302,7 +322,7 @@ void main() {
       float F = 0.04 + 0.96 * pow(1.0 - cosi, 5.0);
       vec3 refl = env(reflect(rd, n));
       vec3 rr = refract(rd, n, 1.0 / uIor);
-      vec3 refr = marchInside(p, rr);
+      vec3 refr = marchInside(p, rr, t);
       col = mix(refr, refl, F);
       // distance fog toward the background so far clusters fade in gracefully
       col = mix(col, bg, smoothstep(30.0, 70.0, t));

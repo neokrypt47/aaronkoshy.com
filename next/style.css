@@ -59,7 +59,9 @@ body.ready #scene { opacity: 1; }
 .hint { font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; color: var(--w50); margin-top: 28px; }
 
 .ov { transform: translateY(var(--reveal-y, 0px)); }
-.ov-hero { left: 48px; bottom: 64px; max-width: 560px; }
+/* --notice-clear is the privacy notice's height while it is docked at the bottom (main.js);
+   bottom-anchored copy rises above it instead of sliding underneath. */
+.ov-hero { left: 48px; bottom: max(64px, calc(var(--notice-clear, 0px) + 20px)); max-width: 560px; }
 .ov-hero p { font-size: clamp(1rem, 1.6vw, 1.15rem); font-weight: 400; line-height: 1.65; color: var(--w80); }
 
 .ov-about { right: 48px; top: 0; bottom: 0; height: fit-content; margin-block: auto; width: min(460px, 44vw); }
@@ -69,7 +71,7 @@ body.ready #scene { opacity: 1; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .chips span { font-size: .74rem; padding: 6px 13px; border-radius: 100px; background: var(--w10); border: 1px solid var(--w20); color: var(--w80); backdrop-filter: blur(8px); }
 
-.ov-work { left: 48px; bottom: 64px; width: min(440px, 42vw); }
+.ov-work { left: 48px; bottom: max(64px, calc(var(--notice-clear, 0px) + 20px)); width: min(440px, 42vw); }
 #work-detail { transition: opacity .14s, transform .14s; }
 #work-detail.swap { opacity: 0; transform: translateY(6px); }
 #work-detail .num { font-size: .7rem; letter-spacing: .15em; color: var(--w50); margin-bottom: 10px; }
@@ -83,7 +85,7 @@ body.ready #scene { opacity: 1; }
 .dots button { width: 26px; height: 4px; border-radius: 4px; border: 0; padding: 0; background: var(--w20); transition: background .25s, width .25s; }
 .dots button[aria-selected="true"] { background: #fff; width: 42px; }
 
-.ov-contact { left: 0; right: 0; margin-inline: auto; bottom: 72px; text-align: center; width: min(560px, 90vw); }
+.ov-contact { left: 0; right: 0; margin-inline: auto; bottom: max(72px, calc(var(--notice-clear, 0px) + 20px)); text-align: center; width: min(560px, 90vw); }
 .ov-contact p { font-size: .98rem; font-weight: 400; color: var(--w80); margin-bottom: 26px; }
 .ov-contact .email { display: inline-block; color: #fff; text-decoration: none; font-size: clamp(1rem, 2.2vw, 1.3rem); padding-bottom: 6px; border-bottom: 1px solid var(--w20); margin-bottom: 26px; transition: border-color .2s; }
 .ov-contact .email:hover { border-color: #fff; }
