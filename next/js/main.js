@@ -4,9 +4,9 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261021';
-import { TAAPass } from './taa.js?v=20261021';
-import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261021';
+import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261021b';
+import { TAAPass } from './taa.js?v=20261021b';
+import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261021b';
 
 // ── Preloader ──
 // Driven by the same marks ?debug reports, so it tracks real work rather than a timer.
@@ -239,7 +239,7 @@ async function buildTextures() {
   try { await document.fonts.load('800 200px Syne'); } catch {}
   T.mark('fonts');
   let worker = null;
-  try { worker = new Worker(new URL('./sdf-worker.js?v=20261021', import.meta.url), { type: 'module' }); } catch {}
+  try { worker = new Worker(new URL('./sdf-worker.js?v=20261021b', import.meta.url), { type: 'module' }); } catch {}
   const pending = new Map();
   if (worker) worker.onmessage = e => { const p = pending.get(e.data.id); if (p) { pending.delete(e.data.id); p(e.data); } };
   // Instant low-res hero field (~20 ms on the main thread) so the first frame never waits on the worker.
@@ -554,7 +554,7 @@ const IDLE_BUDGET_MS = 50;                         // still: the 30 fps cap alre
 const SCALE_FLOOR = Math.min(0.5, targetScale);    // below this the letters go soft
 const ADAPT_EVERY = 300;                           // ms between adjustments
 let msPerPx = 0, lastAdapt = 0, renderedRun = 0, adapts = 0;
-let idleRes = false, activeScale = scale;
+let idleRes = false, activeScale = scale, slowIdle = 0;
 
 // Console handles for profiling. Behind ?debug so a normal page load exposes no globals
 // and hands out no references to the renderer. Note that the ?debug overlay itself costs
@@ -563,7 +563,7 @@ let idleRes = false, activeScale = scale;
 if (DEBUG) {
   window.__gl = () => ({ renderer, composer, scene, cam, uniforms, material, taa, quad, fullMaterial, fullReady });
   window.__perf = () => ({
-    scale, targetScale, activeScale, idleRes, floor: SCALE_FLOOR, frameMs, msPerPx, adapts,
+    scale, targetScale, activeScale, idleRes, marchRatio: taa?.ratio, floor: SCALE_FLOOR, frameMs, msPerPx, adapts,
     passes: composer?.passes.map(p => p.constructor.name),
     canvas: renderer && [renderer.domElement.width, renderer.domElement.height],
   });
@@ -574,6 +574,13 @@ if (DEBUG) {
 function idleScale() {
   if (!msPerPx) return targetScale;
   return clamp(Math.sqrt((IDLE_BUDGET_MS / msPerPx) / (innerWidth * innerHeight)), activeScale, DPR);
+}
+
+// Full-res march costs 4x a half-res one (msPerPx is per drawing-buffer pixel, and TAA
+// marches a quarter of them). No model yet means frames stayed under vsync, so try it and
+// let the watchdog in frame() back off if it turns out too slow.
+function idleFullMarch() {
+  return !msPerPx || 4 * msPerPx * innerWidth * innerHeight * targetScale * targetScale <= IDLE_BUDGET_MS;
 }
 
 function adaptScale() {
@@ -637,13 +644,21 @@ function frame(now) {
     if (now - lastRender < 31) { requestAnimationFrame(frame); return; }
     renderedRun = 0;
     if (!idleRes) {
-      idleRes = true; activeScale = scale;
-      const s = idleScale();
-      if (s > scale * 1.04) { scale = s; applySize(); }
+      idleRes = true; activeScale = scale; slowIdle = 0;
+      const full = !!taa && idleFullMarch();
+      taa?.setRatio(full ? 1 : 0.5);
+      const s = full ? targetScale : idleScale();
+      if (Math.abs(s - scale) > scale * 0.04) { scale = s; applySize(); }
+    } else if (taa?.ratio === 1) {
+      // rAF interval is the GPU cost here; several slow still frames in a row means the
+      // full-res march does not fit, so settle for the half-res one.
+      slowIdle = realMs > IDLE_BUDGET_MS * 1.3 ? slowIdle + 1 : 0;
+      if (slowIdle >= 5) taa.setRatio(0.5);
     }
   } else {
     if (idleRes) {
       idleRes = false;
+      taa?.setRatio(0.5);
       if (scale !== activeScale) { scale = activeScale; applySize(); }
     }
     // Measure whenever the loop is running flat out, even under ?scale= — the forced

@@ -159,6 +159,7 @@ export class TAAPass extends Pass {
     this.hist[0].setSize(w, h); this.hist[1].setSize(w, h);
     this.material.uniforms.uCurTexel.value.set(1 / lw, 1 / lh);
     this.material.uniforms.uHistTexel.value.set(1 / w, 1 / h);
+    this.w = w; this.h = h;
     this.valid = 0;                                     // history is meaningless at a new size
   }
 
@@ -166,6 +167,14 @@ export class TAAPass extends Pass {
   // this whenever `this.scene`'s content changes discontinuously (e.g. a material swap) so
   // the neighborhood clamp doesn't smear the old shading into the new frame.
   invalidate() { this.valid = 0; }
+
+  // Switches the march resolution in place (main.js marches at full res while the page is
+  // still: the glass never stops moving, so half-res history alone never resolves the name).
+  setRatio(r) {
+    if (r === this.ratio) return;
+    this.ratio = r;
+    if (this.w) this.setSize(this.w, this.h);
+  }
 
   render(renderer, writeBuffer) {
     const u = this.material.uniforms;
