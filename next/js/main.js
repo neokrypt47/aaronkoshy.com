@@ -4,9 +4,9 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261021c';
-import { TAAPass } from './taa.js?v=20261021c';
-import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261021c';
+import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261021d';
+import { TAAPass } from './taa.js?v=20261021d';
+import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261021d';
 
 // ── Preloader ──
 // Driven by the same marks ?debug reports, so it tracks real work rather than a timer.
@@ -307,7 +307,7 @@ async function buildTextures() {
   try { await document.fonts.load('800 200px Syne'); } catch {}
   T.mark('fonts');
   let worker = null;
-  try { worker = new Worker(new URL('./sdf-worker.js?v=20261021c', import.meta.url), { type: 'module' }); } catch {}
+  try { worker = new Worker(new URL('./sdf-worker.js?v=20261021d', import.meta.url), { type: 'module' }); } catch {}
   const pending = new Map();
   if (worker) worker.onmessage = e => { const p = pending.get(e.data.id); if (p) { pending.delete(e.data.id); p(e.data); } };
   // Instant low-res hero field (~20 ms on the main thread) so the first frame never waits on the worker.
