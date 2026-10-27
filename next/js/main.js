@@ -4,9 +4,9 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261027e';
-import { TAAPass } from './taa.js?v=20261027e';
-import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261027e';
+import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261027h';
+import { TAAPass } from './taa.js?v=20261027h';
+import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261027h';
 
 // ── Preloader ──
 // Driven by the same marks ?debug reports, so it tracks real work rather than a timer.
@@ -302,6 +302,14 @@ const FULL_RES = q.get('fullres') !== '0';
 const DPR = FULL_RES ? (devicePixelRatio || 1) : Math.min(devicePixelRatio || 1, 2);
 let scale = FORCE_SCALE ?? (FULL_RES || !mobile ? DPR : DPR * 0.55);   // drawing-buffer px per CSS px
 const targetScale = scale;
+// Measured start: the very first full-res frame can itself hang a weak GPU long enough to
+// crash the tab, before the crash guard in frame() gets a say. So the first few frames render
+// at 0.5x, their cost predicts a full-res frame, and we jump straight to full res unless that
+// would exceed PROBE_BUDGET_MS. Any GPU that can draw full res gets it within a second.
+const PROBE_BUDGET_MS = 250;
+let probing = FULL_RES && !FORCE_SCALE && scale > 0.5;
+if (probing) scale = 0.5;
+const probeMs = [];
 
 function hasWebGL2() { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } }
 
@@ -323,7 +331,7 @@ async function buildTextures() {
   try { await document.fonts.load('800 200px Syne'); } catch {}
   T.mark('fonts');
   let worker = null;
-  try { worker = new Worker(new URL('./sdf-worker.js?v=20261027e', import.meta.url), { type: 'module' }); } catch {}
+  try { worker = new Worker(new URL('./sdf-worker.js?v=20261027h', import.meta.url), { type: 'module' }); } catch {}
   const pending = new Map();
   if (worker) worker.onmessage = e => { const p = pending.get(e.data.id); if (p) { pending.delete(e.data.id); p(e.data); } };
   // Instant low-res hero field (~20 ms on the main thread) so the first frame never waits on the worker.
@@ -380,7 +388,7 @@ async function rebuildTextNow() {
   try { await document.fonts.load(`${style} ${TEXT.weight} 200px ${fam}`); } catch {}
   if (gen !== textGen) return;
   let worker = null;
-  try { worker = new Worker(new URL('./sdf-worker.js?v=20261027e', import.meta.url), { type: 'module' }); } catch {}
+  try { worker = new Worker(new URL('./sdf-worker.js?v=20261027h', import.meta.url), { type: 'module' }); } catch {}
   for (const c of CLUSTERS.filter(c => c.lines)) {
     const r = rasterText(c.lines, { w: c.canvas[0], h: c.canvas[1], font: fam, weight: TEXT.weight, style, fill: TEXT.fill, lineHeight: TEXT.lineHeight, spacing: TEXT.spacing });
     const d = worker
@@ -446,7 +454,7 @@ async function init() {
     uTextDepth: { value: 0.42 }, uTextRound: { value: 0.012 },
     uSlab: { value: SLAB_X.map(x => new THREE.Vector4(CLUSTERS[2].x + x, CLUSTERS[2].y, CLUSTERS[2].z + 0.55, 0)) }, uSlabHalf: { value: SLAB_HALF }, uSlabOn: { value: 0 }, uSlabScale: { value: 1 }, uAtlas: { value: atlas },
     uIor: { value: 1.27 }, uAbsorb: { value: new THREE.Vector3(0.10, 0.17, 0.025) }, uDisp: { value: mobile ? 0 : 0.012 },
-    uSteps: { value: 96 }, uISteps: { value: 96 },   // same on phones: fewer inner steps ran out before reaching the letters
+    uSteps: { value: 96 }, uISteps: { value: 56 },   // 96 inner steps was ~70% more GPU work for no verified gain
     uJitter: { value: new THREE.Vector2() }, uAAPx: { value: 1 },
     // Tunable look constants — defaults match the original hardcoded shader values.
     // Live-editable from the dev tune panel (js/tune.js, ?tune on localhost).
@@ -500,7 +508,7 @@ async function init() {
   // Live settings panel: /next/ only (the staging copy), loaded on demand so the homepage
   // never fetches it. ?tune enables it on a localhost server rooted at next/.
   if (location.pathname.startsWith('/next') || (DEV && q.has('tune'))) {
-    import('./tune.js?v=20261027e').then(m => m.initTune({
+    import('./tune.js?v=20261027h').then(m => m.initTune({
       THREE, uniforms, renderer, bloom, taa, plainPass, P, mobile, TEXT, FONT_LIST, rebuildText,
       dpr: devicePixelRatio || 1,
       getScale: () => scale,
@@ -716,7 +724,9 @@ const IDLE_BUDGET_MS = 50;                         // still: the 30 fps cap alre
 const SCALE_FLOOR = Math.min(0.5, targetScale);    // below this the letters go soft
 const ADAPT_EVERY = 300;                           // ms between adjustments
 let msPerPx = 0, lastAdapt = 0, renderedRun = 0, adapts = 0;
-let idleRes = false, activeScale = scale, slowIdle = 0;
+let idleRes = false, activeScale = scale, slowIdle = 0, slowFrames = 0;
+let wasHidden = false;
+document.addEventListener('visibilitychange', () => { if (document.hidden) wasHidden = true; });
 
 // Console handles for profiling. Behind ?debug so a normal page load exposes no globals
 // and hands out no references to the renderer. Note that the ?debug overlay itself costs
@@ -836,6 +846,31 @@ function frame(now) {
     if (!FULL_RES && !FORCE_SCALE && now - lastAdapt > ADAPT_EVERY && renderedRun > 3) { adaptScale(); lastAdapt = now; }
   }
   lastRender = now;
+
+  // Crash guard. Full resolution has no adaptive fallback, and on a high-DPI screen with a weak
+  // GPU a frame can run for seconds, long enough for the driver to reset and kill the tab.
+  // One frame over 1 s halves the resolution at once; three in a row over 250 ms take it down
+  // 30%. Never below 0.5x CSS px. A gap caused by the tab being hidden is not a slow frame.
+  if (probing && frames > 2 && !wasHidden) {
+    probeMs.push(realMs);
+    if (probeMs.length >= 3) {
+      const ms = probeMs.sort((a, b) => a - b)[1];                       // median of 3
+      const perPx = ms / (innerWidth * innerHeight * scale * scale);
+      const fit = Math.sqrt(PROBE_BUDGET_MS / perPx / (innerWidth * innerHeight));
+      // At vsync (~16 ms) the interval hides the real cost: assume full res fits; the guard still backs it.
+      scale = ms < 20 ? targetScale : clamp(fit, 0.5, targetScale); applySize(); probing = false;
+      if (DEBUG) console.log(`[probe] ${Math.round(ms)} ms at 0.5x -> scale ${scale.toFixed(2)}`);
+    }
+  } else if (wasHidden) { wasHidden = false; slowFrames = 0; }
+  else if (frames > 1 && realMs > 1000 && scale > 0.5) {
+    scale = Math.max(0.5, scale * 0.5); applySize(); slowFrames = 0;
+    console.warn(`[guard] ${Math.round(realMs)} ms frame: resolution lowered to ${scale.toFixed(2)}x`);
+  } else if (frames > 1 && realMs > 250) {
+    if (++slowFrames >= 3 && scale > 0.5) {
+      scale = Math.max(0.5, scale * 0.7); applySize(); slowFrames = 0;
+      console.warn(`[guard] frames over 250 ms: resolution lowered to ${scale.toFixed(2)}x`);
+    }
+  } else if (realMs < 200) slowFrames = 0;
 
   readScroll();
   uniforms.uTanFov.value = tanFov();

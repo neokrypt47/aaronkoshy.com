@@ -236,6 +236,8 @@ export function initTune(ctx) {
   gui.folders.forEach(f => { if (f !== fCol) f.close(); });
 
   // ── Restore saved values (after defaults were captured above) ──
+  // ?reset in the URL discards saved settings: an escape hatch if a saved value makes the page unusable.
+  if (new URLSearchParams(location.search).has('reset')) store.clear();
   const saved = store.get();
   if (saved?.values) {
     for (const [k, v] of Object.entries(saved.values)) { const r = reg.get(k); if (r) try { r.set(v); } catch {} }
