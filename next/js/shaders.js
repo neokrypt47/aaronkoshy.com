@@ -70,6 +70,10 @@ uniform float uExitEps;                                // inner surface toleranc
 uniform float uIStepK;  uniform float uIMinStep;       // inner step = max(distance * uIStepK, uIMinStep)
 uniform float uIMaxT;                                  // inner march gives up after this distance
 uniform float uAABand;                                 // name edge-AA band, in output pixels
+// 3D border on the lettering: a lit, bevelled rim along the glyph outline plus the extruded sides
+uniform float uBorderOn;    uniform vec3 uBorderColor;  uniform float uBorderWidth;
+uniform float uBorderSoft;  uniform float uBorderSides; uniform float uBorderBevel;
+uniform float uBorderBright;
 
 // ── SDF helpers ──
 float smin(float a, float b, float k) {
@@ -188,11 +192,48 @@ vec3 env(vec3 d) {
   return c;
 }
 
+// Signed 2D distance to the glyph outline (negative inside) for whichever text slot p is on,
+// plus its gradient (points outward), for the lettering's 3D border.
+float glyphV(sampler2D tex, vec3 p, vec3 pos, vec2 size) {
+  vec2 uv = (p - pos).xy / size + 0.5;
+  return texture(tex, clamp(uv, 0.0, 1.0)).r * size.x;
+}
+float glyphEdge(vec3 p, out vec2 grad) {
+  const float e = 0.01;
+  float dA = uTextAOn > 0.5 ? sdText(uTexA, p, uTextAPos, uTextASize, uTextAFade) : 1e5;
+  float dB = uTextBOn > 0.5 ? sdText(uTexB, p, uTextBPos, uTextBSize, uTextBFade) : 1e5;
+  if (dA <= dB) {
+    grad = vec2(glyphV(uTexA, p + vec3(e, 0, 0), uTextAPos, uTextASize) - glyphV(uTexA, p - vec3(e, 0, 0), uTextAPos, uTextASize),
+                glyphV(uTexA, p + vec3(0, e, 0), uTextAPos, uTextASize) - glyphV(uTexA, p - vec3(0, e, 0), uTextAPos, uTextASize));
+    return glyphV(uTexA, p, uTextAPos, uTextASize);
+  }
+  grad = vec2(glyphV(uTexB, p + vec3(e, 0, 0), uTextBPos, uTextBSize) - glyphV(uTexB, p - vec3(e, 0, 0), uTextBPos, uTextBSize),
+              glyphV(uTexB, p + vec3(0, e, 0), uTextBPos, uTextBSize) - glyphV(uTexB, p - vec3(0, e, 0), uTextBPos, uTextBSize));
+  return glyphV(uTexB, p, uTextBPos, uTextBSize);
+}
+
 vec3 shadeSolid(vec3 p, int id, vec3 rd) {
   vec3 n = nSolid(p);
   vec3 L = normalize(vec3(-0.45, 0.8, 0.6));
   float dif = 0.55 + 0.45 * max(dot(n, L), 0.0);
-  if (id == 0) return uTextColor * (0.88 + 0.16 * dif); // the name: pure white by default, below bloom threshold so edges stay crisp
+  if (id == 0) {
+    vec3 face = uTextColor * (0.88 + 0.16 * dif);       // the name: pure white by default, below bloom threshold so edges stay crisp
+    if (uBorderOn < 0.5) return face;
+    vec2 g; float v = glyphEdge(p, g);
+    // rim: within uBorderWidth inside the outline on the front/back faces
+    float rim = 1.0 - smoothstep(uBorderWidth - uBorderSoft, uBorderWidth, -v);
+    rim *= smoothstep(0.3, 0.7, abs(n.z));
+    // sides: the extruded walls, where the normal lies in the glyph plane
+    float side = (1.0 - smoothstep(0.3, 0.7, abs(n.z))) * uBorderSides;
+    float b = max(rim, side);
+    // bevel: tilt the rim's normal outward along the outline so it catches the light like a chamfer
+    vec3 nb = n;
+    if (rim > 0.0 && dot(g, g) > 1e-10) nb = normalize(n + vec3(normalize(g) * uBorderBevel * rim, 0.0));
+    float bd = 0.35 + 0.65 * max(dot(nb, L), 0.0);
+    float spec = pow(max(dot(reflect(-L, nb), -rd), 0.0), 24.0) * 0.6 * uBorderBevel;
+    vec3 border = uBorderColor * bd * uBorderBright + spec;
+    return mix(face, border, b);
+  }
   int i = id - 1;
   vec3 l = p - uSlab[i].xyz;
   float hov = uSlab[i].w;

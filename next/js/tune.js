@@ -112,6 +112,13 @@ export function initTune(ctx) {
   // ── Text ──
   const fText = gui.addFolder('Text');
   uni(fText, 'uTextDepth', 'Letter thickness', 0.05, 1.2, 0.01);
+  bool(fText, 'uBorderOn', '3D border', () => U.uBorderOn.value > 0.5, v => { U.uBorderOn.value = v ? 1 : 0; });
+  color(fText, 'uBorderColor', 'Border colour', U.uBorderColor.value);
+  uni(fText, 'uBorderWidth', 'Border width', 0, 0.5, 0.005);
+  uni(fText, 'uBorderSoft', 'Border edge softness', 0, 0.2, 0.005);
+  uni(fText, 'uBorderSides', 'Colour the sides', 0, 1, 0.01);
+  uni(fText, 'uBorderBevel', 'Bevel', 0, 3, 0.01);
+  uni(fText, 'uBorderBright', 'Border brightness', 0, 3, 0.01);
 
   // ── Bloom ──
   const fBloom = gui.addFolder('Bloom');

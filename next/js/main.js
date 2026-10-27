@@ -4,9 +4,9 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261027c';
-import { TAAPass } from './taa.js?v=20261027c';
-import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261027c';
+import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261027d';
+import { TAAPass } from './taa.js?v=20261027d';
+import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261027d';
 
 // ── Preloader ──
 // Driven by the same marks ?debug reports, so it tracks real work rather than a timer.
@@ -322,7 +322,7 @@ async function buildTextures() {
   try { await document.fonts.load('800 200px Syne'); } catch {}
   T.mark('fonts');
   let worker = null;
-  try { worker = new Worker(new URL('./sdf-worker.js?v=20261027c', import.meta.url), { type: 'module' }); } catch {}
+  try { worker = new Worker(new URL('./sdf-worker.js?v=20261027d', import.meta.url), { type: 'module' }); } catch {}
   const pending = new Map();
   if (worker) worker.onmessage = e => { const p = pending.get(e.data.id); if (p) { pending.delete(e.data.id); p(e.data); } };
   // Instant low-res hero field (~20 ms on the main thread) so the first frame never waits on the worker.
@@ -415,6 +415,8 @@ async function init() {
     uHitEps: { value: 0.0008 }, uHitEpsK: { value: 0.0012 }, uStepK: { value: 0.9 },
     uExitEps: { value: 0.002 }, uIStepK: { value: 0.9 }, uIMinStep: { value: 0.01 }, uIMaxT: { value: 40 },
     uAABand: { value: 1 },
+    uBorderOn: { value: 1 }, uBorderColor: { value: new THREE.Vector3(0.62, 0.36, 1.0) }, uBorderWidth: { value: 0.09 },
+    uBorderSoft: { value: 0.02 }, uBorderSides: { value: 1 }, uBorderBevel: { value: 0.8 }, uBorderBright: { value: 1.1 },
   };
   // Cheap variant first: compiles fast (small compile-time loop bounds, see shaders.js),
   // so the page can paint and become interactive without waiting on the full shader.
@@ -448,7 +450,7 @@ async function init() {
   // Live settings panel: /next/ only (the staging copy), loaded on demand so the homepage
   // never fetches it. ?tune enables it on a localhost server rooted at next/.
   if (location.pathname.startsWith('/next') || (DEV && q.has('tune'))) {
-    import('./tune.js?v=20261027c').then(m => m.initTune({
+    import('./tune.js?v=20261027d').then(m => m.initTune({
       THREE, uniforms, renderer, bloom, taa, plainPass, P, mobile,
       dpr: devicePixelRatio || 1,
       getScale: () => scale,
