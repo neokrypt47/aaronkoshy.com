@@ -137,3 +137,19 @@ body.no-gl { cursor: auto; }
   .notice-actions { justify-content: flex-end; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+/* /next/ settings panel (js/tune.js, lil-gui): site palette, below the nav, real cursor */
+.lil-gui.ak-tune, .lil-gui.ak-tune .lil-gui {
+  --background-color: rgba(10, 4, 26, .82); --text-color: rgba(255,255,255,.82); --title-background-color: rgba(40, 14, 90, .9);
+  --title-text-color: #fff; --widget-color: rgba(255,255,255,.1); --hover-color: rgba(255,255,255,.16); --focus-color: rgba(190, 140, 255, .35);
+  --number-color: #d9b8ff; --string-color: #c6f; --font-family: var(--body); --font-size: 11.5px; --name-width: 48%;
+}
+.lil-gui.ak-tune {
+  top: 76px; right: 16px; z-index: 40; max-height: calc(100vh - 96px); overscroll-behavior: contain;
+  border: 1px solid var(--w20); border-radius: 12px; overflow: hidden auto;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 20px 60px rgba(0,0,0,.4);
+  cursor: auto;
+}
+.lil-gui.ak-tune button, .lil-gui.ak-tune .title { cursor: pointer; }
+body.tuning #cursor-dot, body.tuning #cursor-ring { visibility: hidden; }
+@media (max-width: 900px) { .lil-gui.ak-tune { left: 16px; right: 16px; width: auto; top: 70px; } }

@@ -60,6 +60,16 @@ uniform vec3  uTIRColor;
 uniform vec3  uGlowColor;
 uniform float uHaloMin;   uniform float uHaloRange;
 uniform float uVignette;
+uniform float uBgScale;                                // background brightness behind the glass
+uniform float uCoreRound;                              // corner radius of the glass block
+uniform float uCoreBlend; uniform float uBlobBlend; uniform float uCursorBlend;   // smooth-min radii
+// Raymarch controls (live-tunable; defaults are the original literals)
+uniform float uHitEps;  uniform float uHitEpsK;        // outer hit tolerance: uHitEpsK * t + uHitEps
+uniform float uStepK;                                  // outer step = distance * uStepK
+uniform float uExitEps;                                // inner surface tolerance (exit / solid hit)
+uniform float uIStepK;  uniform float uIMinStep;       // inner step = max(distance * uIStepK, uIMinStep)
+uniform float uIMaxT;                                  // inner march gives up after this distance
+uniform float uAABand;                                 // name edge-AA band, in output pixels
 
 // ── SDF helpers ──
 float smin(float a, float b, float k) {
@@ -75,14 +85,14 @@ float sdRBox(vec3 p, vec3 b, float r) { vec3 q = abs(p) - b + r; return length(m
 // unrolled, and the branch divergence costs more than the sqrt it saves. Don't re-add it.
 float sdLiquid(vec3 p) {
   float d = 1e5;
-  if (uCoreAOn > 0.5) d = sdRBox(p - uCoreA, uCoreAHalf, 0.8);
-  if (uCoreBOn > 0.5) d = smin(d, sdRBox(p - uCoreB, uCoreBHalf, 0.8), 1.2);
+  if (uCoreAOn > 0.5) d = sdRBox(p - uCoreA, uCoreAHalf, uCoreRound);
+  if (uCoreBOn > 0.5) d = smin(d, sdRBox(p - uCoreB, uCoreBHalf, uCoreRound), uCoreBlend);
   for (int i = 0; i < MAXB; i++) {
     if (i >= uNB) break;
     vec4 b = uBlobs[i];
-    d = smin(d, length(p - b.xyz) - b.w, 1.3);
+    d = smin(d, length(p - b.xyz) - b.w, uBlobBlend);
   }
-  if (uCursor.w > 0.001) d = smin(d, length(p - uCursor.xyz) - uCursor.w, 0.85);
+  if (uCursor.w > 0.001) d = smin(d, length(p - uCursor.xyz) - uCursor.w, uCursorBlend);
   return d;
 }
 
@@ -133,27 +143,27 @@ float sdLiquidG(vec3 p, out vec3 g) {
   float d = 1e5; g = vec3(0.0, 0.0, 1.0);
   if (uCoreAOn > 0.5) {
     vec3 l = p - uCoreA;
-    d = sdRBox(l, uCoreAHalf, 0.8); g = gRBox(l, uCoreAHalf, 0.8);
+    d = sdRBox(l, uCoreAHalf, uCoreRound); g = gRBox(l, uCoreAHalf, uCoreRound);
   }
   if (uCoreBOn > 0.5) {
     vec3 l = p - uCoreB;
-    float db = sdRBox(l, uCoreBHalf, 0.8); vec3 gb = gRBox(l, uCoreBHalf, 0.8);
-    float h = clamp(0.5 + 0.5 * (db - d) / 1.2, 0.0, 1.0);
-    d = mix(db, d, h) - 1.2 * h * (1.0 - h); g = mix(gb, g, h);
+    float db = sdRBox(l, uCoreBHalf, uCoreRound); vec3 gb = gRBox(l, uCoreBHalf, uCoreRound);
+    float h = clamp(0.5 + 0.5 * (db - d) / uCoreBlend, 0.0, 1.0);
+    d = mix(db, d, h) - uCoreBlend * h * (1.0 - h); g = mix(gb, g, h);
   }
   for (int i = 0; i < MAXB; i++) {
     if (i >= uNB) break;
     vec4 b = uBlobs[i];
     vec3 dv = p - b.xyz; float L = length(dv);
     float db = L - b.w; vec3 gb = dv / max(L, 1e-6);
-    float h = clamp(0.5 + 0.5 * (db - d) / 1.3, 0.0, 1.0);
-    d = mix(db, d, h) - 1.3 * h * (1.0 - h); g = mix(gb, g, h);
+    float h = clamp(0.5 + 0.5 * (db - d) / uBlobBlend, 0.0, 1.0);
+    d = mix(db, d, h) - uBlobBlend * h * (1.0 - h); g = mix(gb, g, h);
   }
   if (uCursor.w > 0.001) {
     vec3 dv = p - uCursor.xyz; float L = length(dv);
     float db = L - uCursor.w; vec3 gb = dv / max(L, 1e-6);
-    float h = clamp(0.5 + 0.5 * (db - d) / 0.85, 0.0, 1.0);
-    d = mix(db, d, h) - 0.85 * h * (1.0 - h); g = mix(gb, g, h);
+    float h = clamp(0.5 + 0.5 * (db - d) / uCursorBlend, 0.0, 1.0);
+    d = mix(db, d, h) - uCursorBlend * h * (1.0 - h); g = mix(gb, g, h);
   }
   return d;
 }
@@ -206,7 +216,7 @@ vec3 marchInside(vec3 p, vec3 rr, float t0) {
   // output pixel of a letter records how much of that pixel the letter covers and carries
   // on to find what lies behind it, and the two are blended at the end. Without this the
   // edges only antialias through TAA's half-res history, which reads as soft stair-steps.
-  float pxA = 2.0 * uTanFov / uRes.y * uAAPx;
+  float pxA = 2.0 * uTanFov / uRes.y * uAAPx * uAABand;
   float cov = 0.0, covT = 0.0; vec3 covQ = q;
   for (int i = 0; i < __IM_STEPS__; i++) {
     if (i >= uISteps) break;
@@ -220,11 +230,11 @@ vec3 marchInside(vec3 p, vec3 rr, float t0) {
       if (c >= 1.0) { sid = 0; cov = 0.0; break; }
       if (c > cov) { cov = c; covT = tt; covQ = q; }
       adv = max(ds, pw * 0.5);            // skim past the edge band rather than stopping in it
-    } else if (ds < 0.002) { sid = id; break; }
-    if (dl < 0.002) { exited = true; break; }
-    tt += max(min(dl, adv) * 0.9, 0.01);
+    } else if (ds < uExitEps) { sid = id; break; }
+    if (dl < uExitEps) { exited = true; break; }
+    tt += max(min(dl, adv) * uIStepK, uIMinStep);
     q = p + rr * tt;
-    if (tt > 40.0) { exited = true; break; }
+    if (tt > uIMaxT) { exited = true; break; }
   }
   vec3 absorb = exp(-uAbsorb * tt);
   vec3 glow = uGlowColor * (1.0 - exp(-tt * 0.22));  // subsurface glow
@@ -276,7 +286,7 @@ void main() {
   vec3 rd = normalize(uCamMat * vec3(uv * uTanFov, -1.0));
   vec3 ro = uCamPos;
 
-  vec3 bg = env(rd) * 0.7;
+  vec3 bg = env(rd) * uBgScale;
   float vig = 1.0 - uVignette * dot(uv * 0.6, uv * 0.6);
   bg *= vig;
 
@@ -306,8 +316,8 @@ void main() {
       float dl = sdLiquid(p);
       int id; float ds = sdSolid(p, id);
       float d = min(dl, ds);
-      if (d < 0.0012 * t + 0.0008) { hit = (dl <= ds) ? -1 : id; break; }
-      t += d * 0.9;
+      if (d < uHitEpsK * t + uHitEps) { hit = (dl <= ds) ? -1 : id; break; }
+      t += d * uStepK;
       if (t > tEnd) break;
     }
     if (hit == -2) {

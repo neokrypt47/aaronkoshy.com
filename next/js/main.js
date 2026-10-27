@@ -4,9 +4,9 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261027';
-import { TAAPass } from './taa.js?v=20261027';
-import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261027';
+import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261027c';
+import { TAAPass } from './taa.js?v=20261027c';
+import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261027c';
 
 // ── Preloader ──
 // Driven by the same marks ?debug reports, so it tracks real work rather than a timer.
@@ -112,8 +112,20 @@ CLUSTERS.forEach((c, i) => { c.z = -i * GAP; c.center = new THREE.Vector3(c.x, c
 const SLAB_X = [-5.6, -1.85, 1.85, 5.6];
 const SLAB_HALF = new THREE.Vector3(1.65, 1.03, 0.11);
 const N = CLUSTERS.length;
-const DW = 0.28;
-const CAM_DIST = mobile ? 21 : 13.5;                      // dwell half-width around each cluster, in segment units
+// Live-tunable scene parameters. Defaults are the original hand-picked literals; the /next/
+// settings panel (js/tune.js) edits this object in place and the scene reads it every frame.
+const P = {
+  // motion
+  speed: 1, spring: 3.2, damping: 2.4, breathe: 1, separation: 7, blobGap: 0.72,
+  cursorPush: 14, cursorReach: 1.4, cursorRadius: 0.62, cursorFollow: 14, burst: 9,
+  // scrolling
+  scrollLength: 560, scrollSmooth: 7, dwellStart: 0.28, dwellEnd: 0.72, workDwell: 0.28,
+  // camera
+  fov: mobile ? 34 : 26, camDist: mobile ? 21 : 13.5, camHeight: 0.9, swingX: 4.0, swingY: 3.0,
+  lookAhead: 1.6, fadeOut: 0.62, fadeInStart: 0.32, fadeInEnd: 0.92, maxPullBack: 2.2,
+  workPan: 0.55, parallaxX: 0.9, parallaxY: 0.5, camFollow: 6, bob: 0.04,
+};
+const tanFov = () => Math.tan(THREE.MathUtils.degToRad(P.fov));
 
 function makeBlobs(c) {
   const blobs = [];
@@ -202,18 +214,18 @@ function cameraFor(prog) {
   const k = Math.min(N - 2, Math.floor(seg));
   const f = seg - k;                     // 0..1 between cluster k and k+1
   // dwell: hold at k for f<0.3, travel 0.3..0.7, hold at k+1 after
-  const tr = smooth(0.28, 0.72, f);
+  const tr = smooth(P.dwellStart, P.dwellEnd, f);
   const a = CLUSTERS[k].center, b = CLUSTERS[k + 1].center;
-  const fa = CLUSTERS[k].frame, fb = CLUSTERS[k + 1].frame, lt = Math.min(1, tr * 1.6);
+  const fa = CLUSTERS[k].frame, fb = CLUSTERS[k + 1].frame, lt = Math.min(1, tr * P.lookAhead);
   const look = new THREE.Vector3().lerpVectors(a, b, lt);   // turn toward the next cluster early
   look.x += lerp(fa.x, fb.x, lt); look.y += lerp(fa.y, fb.y, lt);
-  const pos = new THREE.Vector3().lerpVectors(a, b, tr).add(new THREE.Vector3(lerp(fa.x, fb.x, tr), 0.9 + lerp(fa.y, fb.y, tr), lerp(fa.d, fb.d, tr)));
+  const pos = new THREE.Vector3().lerpVectors(a, b, tr).add(new THREE.Vector3(lerp(fa.x, fb.x, tr), P.camHeight + lerp(fa.y, fb.y, tr), lerp(fa.d, fb.d, tr)));
   // swing wide toward the next cluster's side and climb, so the current liquid glides past beside/below us
   const dir = Math.sign(b.x - a.x) || 1;
   const arc = Math.sin(tr * Math.PI);
-  pos.x += arc * 4.0 * dir; pos.y += arc * 3.0;
+  pos.x += arc * P.swingX * dir; pos.y += arc * P.swingY;
   // presence: the mass we leave melts away, the next one condenses ahead of us
-  const presA = 1 - smooth(0.0, 0.62, tr), presB = smooth(0.32, 0.92, tr);
+  const presA = 1 - smooth(0.0, P.fadeOut, tr), presB = smooth(P.fadeInStart, P.fadeInEnd, tr);
   return { pos, look, k, f, tr, near: tr < 0.5 ? k : k + 1, presA, presB };
 }
 
@@ -227,10 +239,10 @@ function cameraFor(prog) {
 // the glass would be seen so obliquely that its flank shows and the lettering refracts away.
 // FIT is the core's half-extent in world units (the drips may still wander over the copy).
 const FIT = { hero: [8.0, 4.9], about: [7.0, 3.6], work: [9.2, 2.6], contact: [7.4, 4.6] };
-const TAN_FOV = Math.tan(THREE.MathUtils.degToRad(mobile ? 34 : 26));
-CLUSTERS.forEach(c => { c.frame = { x: 0, y: 0, d: CAM_DIST }; });
+CLUSTERS.forEach(c => { c.frame = { x: 0, y: 0, d: P.camDist }; });
 function computeFraming() {
   framingDirty = false;
+  const TAN_FOV = tanFov(), CAM_DIST = P.camDist;
   const vw = innerWidth, vh = innerHeight, gap = 28;
   const top = ($('.nav')?.getBoundingClientRect().bottom ?? 0) + 8;
   // Side regions keep off the screen edges and stop above a bottom-docked privacy notice.
@@ -254,7 +266,7 @@ function computeFraming() {
       if (x1 - x0 < 80 || y1 - y0 < 80 || Math.abs(cand.cx) > 1.0) continue;
       if (!best || cand.need < best.need) best = cand;
     }
-    const DMAX = CAM_DIST * 2.2;
+    const DMAX = CAM_DIST * P.maxPullBack;
     // Nothing fits beside the copy (a short screen): stack the glass above it rather than
     // pushing it to a side strip, where the steep off-axis view shows the slab's flank and
     // refracts the lettering away.
@@ -274,7 +286,7 @@ document.fonts?.ready.then(() => { framingDirty = true; });
 
 // ── Renderer ──
 const canvas = $('#scene');
-let renderer, composer, bloom, material, uniforms, scene, cam, taa, quad;
+let renderer, composer, bloom, plainPass, material, uniforms, scene, cam, taa, quad;
 // Progressive shader swap: `material`/`quad` start on the cheap FRAG_FAST variant so the
 // page paints and is interactive almost immediately; the full FRAG shader compiles in the
 // background (started once a few real frames have rendered) and is swapped in on a frame
@@ -310,7 +322,7 @@ async function buildTextures() {
   try { await document.fonts.load('800 200px Syne'); } catch {}
   T.mark('fonts');
   let worker = null;
-  try { worker = new Worker(new URL('./sdf-worker.js?v=20261027', import.meta.url), { type: 'module' }); } catch {}
+  try { worker = new Worker(new URL('./sdf-worker.js?v=20261027c', import.meta.url), { type: 'module' }); } catch {}
   const pending = new Map();
   if (worker) worker.onmessage = e => { const p = pending.get(e.data.id); if (p) { pending.delete(e.data.id); p(e.data); } };
   // Instant low-res hero field (~20 ms on the main thread) so the first frame never waits on the worker.
@@ -373,7 +385,7 @@ async function init() {
 
   uniforms = {
     uRes: { value: new THREE.Vector2() }, uTime: { value: 0 },
-    uCamPos: { value: new THREE.Vector3() }, uCamMat: { value: new THREE.Matrix3() }, uTanFov: { value: TAN_FOV },
+    uCamPos: { value: new THREE.Vector3() }, uCamMat: { value: new THREE.Matrix3() }, uTanFov: { value: tanFov() },
     uBlobs: { value: Array.from({ length: 36 }, () => new THREE.Vector4(0, 0, 0, 0)) }, uNB: { value: 0 },
     uCursor: { value: new THREE.Vector4(0, 0, 0, 0) },
     uCoreA: { value: new THREE.Vector3() }, uCoreAHalf: { value: new THREE.Vector3(1, 1, 1) }, uCoreAOn: { value: 0 },
@@ -384,7 +396,7 @@ async function init() {
     uTextDepth: { value: 0.42 },
     uSlab: { value: SLAB_X.map(x => new THREE.Vector4(CLUSTERS[2].x + x, CLUSTERS[2].y, CLUSTERS[2].z + 0.55, 0)) }, uSlabHalf: { value: SLAB_HALF }, uSlabOn: { value: 0 }, uSlabScale: { value: 1 }, uAtlas: { value: atlas },
     uIor: { value: 1.27 }, uAbsorb: { value: new THREE.Vector3(0.10, 0.17, 0.025) }, uDisp: { value: mobile ? 0 : 0.012 },
-    uSteps: { value: mobile ? 64 : 96 }, uISteps: { value: mobile ? 36 : 56 },
+    uSteps: { value: 96 }, uISteps: { value: 96 },   // same on phones: fewer inner steps ran out before reaching the letters
     uJitter: { value: new THREE.Vector2() }, uAAPx: { value: 1 },
     // Tunable look constants — defaults match the original hardcoded shader values.
     // Live-editable from the dev tune panel (js/tune.js, ?tune on localhost).
@@ -398,6 +410,11 @@ async function init() {
     uGlowColor: { value: new THREE.Vector3(0.30, 0.10, 0.55).multiplyScalar(0.35) },
     uHaloMin: { value: 0.30 }, uHaloRange: { value: 0.6 },
     uVignette: { value: 0.35 },
+    uBgScale: { value: 0.7 },
+    uCoreRound: { value: 0.8 }, uCoreBlend: { value: 1.2 }, uBlobBlend: { value: 1.3 }, uCursorBlend: { value: 0.85 },
+    uHitEps: { value: 0.0008 }, uHitEpsK: { value: 0.0012 }, uStepK: { value: 0.9 },
+    uExitEps: { value: 0.002 }, uIStepK: { value: 0.9 }, uIMinStep: { value: 0.01 }, uIMaxT: { value: 40 },
+    uAABand: { value: 1 },
   };
   // Cheap variant first: compiles fast (small compile-time loop bounds, see shaders.js),
   // so the page can paint and become interactive without waiting on the full shader.
@@ -414,7 +431,8 @@ async function init() {
   // TAAPass renders the scene itself, at half linear resolution, and resolves to full —
   // so it stands in for RenderPass rather than following it.
   if (TAA) { taa = new TAAPass(scene, cam, uniforms, FULL_RES ? 1 : 0.5); composer.addPass(taa); }
-  else composer.addPass(new RenderPass(scene, cam));
+  // Plain pass on standby so the settings panel can switch TAA off live; exactly one runs.
+  plainPass = new RenderPass(scene, cam); plainPass.enabled = !TAA; composer.addPass(plainPass);
   bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.3, 0.3, 1.1);
   composer.addPass(bloom);
   // No FXAA: TAA already resolves the edges, and FXAA on top only blurred the name.
@@ -427,6 +445,22 @@ async function init() {
   readScroll();
   p = pRaw;
   requestAnimationFrame(frame);
+  // Live settings panel: /next/ only (the staging copy), loaded on demand so the homepage
+  // never fetches it. ?tune enables it on a localhost server rooted at next/.
+  if (location.pathname.startsWith('/next') || (DEV && q.has('tune'))) {
+    import('./tune.js?v=20261027c').then(m => m.initTune({
+      THREE, uniforms, renderer, bloom, taa, plainPass, P, mobile,
+      dpr: devicePixelRatio || 1,
+      getScale: () => scale,
+      setScale: v => { scale = v; applySize(); },
+      applyScroll: () => { scroller.style.height = `${P.scrollLength}vh`; readScroll(); },
+      markFraming: () => { framingDirty = true; },
+      setStats: on => {
+        if (on && !dbgEl) { dbgEl = document.createElement('pre'); dbgEl.id = 'dbg'; document.body.appendChild(dbgEl); fpsT = performance.now(); fpsN = 0; }
+        if (!on && dbgEl) { dbgEl.remove(); dbgEl = null; }
+      },
+    })).then(gui => { if (DEBUG) window.__tune = gui; }).catch(err => console.error('settings panel failed to load', err));
+  }
   // Screenshots are only needed for the Work section: load them after the scene is up.
   setTimeout(() => buildAtlas(cards).then(tex => { uniforms.uAtlas.value.dispose(); uniforms.uAtlas.value = tex; T.mark('atlas'); }), 250);
 }
@@ -479,20 +513,20 @@ function stepBlobs(c, dt, t, cur, curOn) {
   for (let i = 0; i < B.length; i++) {
     const b = B[i];
     // breathing home
-    tmp.set(Math.sin(t * b.w + b.ph) * 0.35, Math.cos(t * b.w * 0.8 + b.ph * 1.7) * 0.3, Math.sin(t * b.w * 0.6 + b.ph) * 0.25).add(b.home);
-    tmp.sub(b.pos).multiplyScalar(3.2);                 // spring
-    tmp.addScaledVector(b.vel, -2.4);                    // damping
+    tmp.set(Math.sin(t * b.w + b.ph) * 0.35, Math.cos(t * b.w * 0.8 + b.ph * 1.7) * 0.3, Math.sin(t * b.w * 0.6 + b.ph) * 0.25).multiplyScalar(P.breathe).add(b.home);
+    tmp.sub(b.pos).multiplyScalar(P.spring);              // spring
+    tmp.addScaledVector(b.vel, -P.damping);              // damping
     if (curOn) {
       tmp2.subVectors(b.pos, cur);
-      const d = tmp2.length(), reach = b.r + cursorR + 1.4;
-      if (d < reach && d > 1e-4) tmp.addScaledVector(tmp2.normalize(), (reach - d) * 14);
+      const d = tmp2.length(), reach = b.r + cursorR + P.cursorReach;
+      if (d < reach && d > 1e-4) tmp.addScaledVector(tmp2.normalize(), (reach - d) * P.cursorPush);
     }
     for (let j = 0; j < B.length; j++) {
       if (j === i) continue;
       const o = B[j];
       tmp2.subVectors(b.pos, o.pos);
-      const d = tmp2.length(), minD = (b.r + o.r) * 0.72;
-      if (d < minD && d > 1e-4) tmp.addScaledVector(tmp2.normalize(), (minD - d) * 7);
+      const d = tmp2.length(), minD = (b.r + o.r) * P.blobGap;
+      if (d < minD && d > 1e-4) tmp.addScaledVector(tmp2.normalize(), (minD - d) * P.separation);
     }
     b.vel.addScaledVector(tmp, dt);
     b.pos.addScaledVector(b.vel, dt);
@@ -589,7 +623,7 @@ function gotoCard(i) {
   const max = document.documentElement.scrollHeight - innerHeight;
   const k = 2;                                                       // work cluster index
   // inside the work dwell (f between 0.72 of seg 1..2 and 0.28 of seg 2..3), spread the 4 cards
-  const pStart = (k - DW) / (N - 1), pEnd = (k + DW) / (N - 1);
+  const pStart = (k - P.workDwell) / (N - 1), pEnd = (k + P.workDwell) / (N - 1);
   scrollTo({ top: lerp(pStart, pEnd, (i + 0.5) / cards.length) * max, behavior: 'smooth' });
 }
 canvas.addEventListener('click', e => {
@@ -597,7 +631,7 @@ canvas.addEventListener('click', e => {
   const hit = uniforms?.uSlabOn.value ? slabHit() : -1;            // works for taps too
   if (hit >= 0) { track('project_open', { project: cards[hit].title, via: 'panel' }); window.open(cards[hit].href, '_blank', 'noopener'); return; }
   const c = CLUSTERS[nearK];
-  if (rayPlaneZ(c.z, tmp2)) { burst(c, tmp2, 9); track('liquid_burst', { section: c.id }); }
+  if (rayPlaneZ(c.z, tmp2)) { burst(c, tmp2, P.burst); track('liquid_burst', { section: c.id }); }
 });
 window.addEventListener('keydown', e => {
   if (nearK !== 2) return;
@@ -689,7 +723,7 @@ function frame(now) {
   const realMs = now - last;
   let dt = FIXED_DT ? 1 / 60 : Math.min(realMs / 1000, 0.05);
   last = now;
-  tSim += dt;
+  tSim += dt * P.speed;
   frames++;
   const t = tSim;
 
@@ -752,7 +786,8 @@ function frame(now) {
   lastRender = now;
 
   readScroll();
-  p = reduce ? pRaw : lerp(p, pRaw, Math.min(1, dt * 7));
+  uniforms.uTanFov.value = tanFov();
+  p = reduce ? pRaw : lerp(p, pRaw, Math.min(1, dt * P.scrollSmooth));
   if (framingDirty) computeFraming();
   const cam = cameraFor(p);
   nearK = cam.near;
@@ -761,10 +796,10 @@ function frame(now) {
   {
     let w = 0;
     if (cam.near === 2) { const off = cam.k === 2 ? cam.tr : 1 - cam.tr; w = 1 - smooth(0, 0.5, off); }
-    const pStart = (2 - DW) / (N - 1), pEnd = (2 + DW) / (N - 1);
+    const pStart = (2 - P.workDwell) / (N - 1), pEnd = (2 + P.workDwell) / (N - 1);
     const s = clamp((p - pStart) / (pEnd - pStart), 0, 1);
     activeCard = Math.min(cards.length - 1, Math.floor(s * cards.length));
-    const cx = SLAB_X[activeCard] * 0.55;
+    const cx = SLAB_X[activeCard] * P.workPan;
     cam.pos.x += cx * w; cam.look.x += cx * 0.9 * w;
     // On a portrait/narrow viewport, CAM_DIST is tuned for the wide fan (all four slabs at
     // once, which is the point on a landscape screen) — but the same distance also fits the
@@ -773,29 +808,29 @@ function frame(now) {
     const aspect = innerWidth / innerHeight;
     if (aspect < 0.9) {
       const desiredWidth = 4.4;   // active slab (3.3 wide) plus a little breathing room each side
-      const workDist = clamp(desiredWidth / (2 * uniforms.uTanFov.value * aspect), 3, CAM_DIST);
-      cam.pos.z -= (CAM_DIST - workDist) * w;
+      const workDist = clamp(desiredWidth / (2 * uniforms.uTanFov.value * aspect), 3, P.camDist);
+      cam.pos.z -= (P.camDist - workDist) * w;
     }
   }
   // pointer parallax
   const px = pointer.inside ? (pointer.x / innerWidth - 0.5) : 0, py = pointer.inside ? (pointer.y / innerHeight - 0.5) : 0;
-  const ck = FORCE_P !== null ? 1 : Math.min(1, dt * 6);
-  camPos.lerp(cam.pos.add(new THREE.Vector3(px * 0.9, -py * 0.5, 0)), ck);
+  const ck = FORCE_P !== null ? 1 : Math.min(1, dt * P.camFollow);
+  camPos.lerp(cam.pos.add(new THREE.Vector3(px * P.parallaxX, -py * P.parallaxY, 0)), ck);
   camLook.lerp(cam.look, ck);
-  camPos.y += Math.sin(t * 0.5) * 0.04;
+  camPos.y += Math.sin(t * 0.5) * P.bob;
   updateCamMat();
 
   // cursor droplet on the nearest cluster's plane
   const c = CLUSTERS[nearK];
   const fresh = pointer.inside && (pointer.type !== 'touch' || pointer.down) && now - pointer.moved < 4000;
   const curOn = fresh && rayPlaneZ(c.z + 1.2, tmp);
-  cursorR = lerp(cursorR, curOn ? 0.62 : 0, Math.min(1, dt * 8));
-  if (curOn) cursorWorld.lerp(tmp, Math.min(1, dt * 14));
+  cursorR = lerp(cursorR, curOn ? P.cursorRadius : 0, Math.min(1, dt * 8));
+  if (curOn) cursorWorld.lerp(tmp, Math.min(1, dt * P.cursorFollow));
   uniforms.uCursor.value.set(cursorWorld.x, cursorWorld.y, cursorWorld.z, cursorR > 0.02 ? cursorR : 0);
 
   // physics on the two clusters around the camera
   const active = [cam.k, cam.k + 1];
-  if (!reduce) for (const k of active) stepBlobs(CLUSTERS[k], dt, t, cursorWorld, curOn && k === nearK);
+  if (!reduce) for (const k of active) stepBlobs(CLUSTERS[k], dt * P.speed, t, cursorWorld, curOn && k === nearK);
 
   // upload blobs
   // Every blob costs a sqrt and a smin at each of the ~10 sdLiquid evaluations a pixel
