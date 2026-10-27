@@ -166,6 +166,7 @@ export function initTune(ctx) {
 
   // ── Camera ──
   const fCam = gui.addFolder('Camera');
+  bool(fCam, 'P.heroBeside', 'Hero: glass beside copy (off = centred)', () => P.heroBeside, v => { P.heroBeside = v; ctx.markFraming(); });
   param(fCam, 'fov', 'Field of view (deg)', 10, 70, 0.5, ctx.markFraming);
   param(fCam, 'camDist', 'Distance', 5, 40, 0.1, ctx.markFraming);
   param(fCam, 'maxPullBack', 'Max pull-back (x distance)', 1, 4, 0.05, ctx.markFraming);

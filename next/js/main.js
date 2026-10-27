@@ -4,9 +4,9 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261027h';
-import { TAAPass } from './taa.js?v=20261027h';
-import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261027h';
+import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261027i';
+import { TAAPass } from './taa.js?v=20261027i';
+import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261027i';
 
 // ── Preloader ──
 // Driven by the same marks ?debug reports, so it tracks real work rather than a timer.
@@ -122,7 +122,7 @@ const P = {
   scrollLength: 560, scrollSmooth: 7, dwellStart: 0.28, dwellEnd: 0.72, workDwell: 0.28,
   // camera
   fov: mobile ? 34 : 26, camDist: mobile ? 21 : 13.5, camHeight: 0.9, swingX: 4.0, swingY: 3.0,
-  textZ: 0, textScale: 1,
+  textZ: 0, textScale: 1, heroBeside: false,
   lookAhead: 1.6, fadeOut: 0.62, fadeInStart: 0.32, fadeInEnd: 0.92, maxPullBack: 2.2,
   workPan: 0.55, parallaxX: 0.9, parallaxY: 0.5, camFollow: 6, bob: 0.04,
 };
@@ -255,9 +255,13 @@ function computeFraming() {
     // a scrim card there, so only make sure the glass fits the screen's width.
     if (mobile && c.id === 'work') { c.frame = { x: 0, y: 0, d: CAM_DIST }; continue; }
     const r = $(ovs[c.id]).getBoundingClientRect();
+    // The hero stays horizontally centred (full-width band above its copy) unless the panel's
+    // "Hero beside copy" is on; about/contact still go beside their copy.
     const regions = mobile && c.id !== 'hero'
       ? [[L, top, R, vh, true]]
-      : [[L, top, r.left - gap, B], [r.right + gap, top, R, B], [L, top, R, r.top - gap, true]];
+      : c.id === 'hero' && !P.heroBeside
+        ? [[L, top, R, r.top - gap, true]]
+        : [[L, top, r.left - gap, B], [r.right + gap, top, R, B], [L, top, R, r.top - gap, true]];
     const [fw, fh] = FIT[c.id];
     let best = null, above = null;
     for (const [x0, y0, x1, y1, isAbove] of regions) {
@@ -331,7 +335,7 @@ async function buildTextures() {
   try { await document.fonts.load('800 200px Syne'); } catch {}
   T.mark('fonts');
   let worker = null;
-  try { worker = new Worker(new URL('./sdf-worker.js?v=20261027h', import.meta.url), { type: 'module' }); } catch {}
+  try { worker = new Worker(new URL('./sdf-worker.js?v=20261027i', import.meta.url), { type: 'module' }); } catch {}
   const pending = new Map();
   if (worker) worker.onmessage = e => { const p = pending.get(e.data.id); if (p) { pending.delete(e.data.id); p(e.data); } };
   // Instant low-res hero field (~20 ms on the main thread) so the first frame never waits on the worker.
@@ -388,7 +392,7 @@ async function rebuildTextNow() {
   try { await document.fonts.load(`${style} ${TEXT.weight} 200px ${fam}`); } catch {}
   if (gen !== textGen) return;
   let worker = null;
-  try { worker = new Worker(new URL('./sdf-worker.js?v=20261027h', import.meta.url), { type: 'module' }); } catch {}
+  try { worker = new Worker(new URL('./sdf-worker.js?v=20261027i', import.meta.url), { type: 'module' }); } catch {}
   for (const c of CLUSTERS.filter(c => c.lines)) {
     const r = rasterText(c.lines, { w: c.canvas[0], h: c.canvas[1], font: fam, weight: TEXT.weight, style, fill: TEXT.fill, lineHeight: TEXT.lineHeight, spacing: TEXT.spacing });
     const d = worker
@@ -508,7 +512,7 @@ async function init() {
   // Live settings panel: /next/ only (the staging copy), loaded on demand so the homepage
   // never fetches it. ?tune enables it on a localhost server rooted at next/.
   if (location.pathname.startsWith('/next') || (DEV && q.has('tune'))) {
-    import('./tune.js?v=20261027h').then(m => m.initTune({
+    import('./tune.js?v=20261027i').then(m => m.initTune({
       THREE, uniforms, renderer, bloom, taa, plainPass, P, mobile, TEXT, FONT_LIST, rebuildText,
       dpr: devicePixelRatio || 1,
       getScale: () => scale,
