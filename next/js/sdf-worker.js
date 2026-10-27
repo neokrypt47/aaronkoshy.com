@@ -1,5 +1,5 @@
 // sdf-worker.js — runs the exact distance transform and half-float packing off the main thread.
-import { edtSigned, toHalf } from './sdf.js?v=20261027d';
+import { edtSigned, toHalf } from './sdf.js?v=20261027e';
 self.onmessage = e => {
   const { id, mask, w, h } = e.data;
   const t0 = performance.now();

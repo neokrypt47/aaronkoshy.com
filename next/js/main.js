@@ -4,9 +4,9 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261027d';
-import { TAAPass } from './taa.js?v=20261027d';
-import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261027d';
+import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261027e';
+import { TAAPass } from './taa.js?v=20261027e';
+import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261027e';
 
 // ── Preloader ──
 // Driven by the same marks ?debug reports, so it tracks real work rather than a timer.
@@ -122,6 +122,7 @@ const P = {
   scrollLength: 560, scrollSmooth: 7, dwellStart: 0.28, dwellEnd: 0.72, workDwell: 0.28,
   // camera
   fov: mobile ? 34 : 26, camDist: mobile ? 21 : 13.5, camHeight: 0.9, swingX: 4.0, swingY: 3.0,
+  textZ: 0, textScale: 1,
   lookAhead: 1.6, fadeOut: 0.62, fadeInStart: 0.32, fadeInEnd: 0.92, maxPullBack: 2.2,
   workPan: 0.55, parallaxX: 0.9, parallaxY: 0.5, camFollow: 6, bob: 0.04,
 };
@@ -322,7 +323,7 @@ async function buildTextures() {
   try { await document.fonts.load('800 200px Syne'); } catch {}
   T.mark('fonts');
   let worker = null;
-  try { worker = new Worker(new URL('./sdf-worker.js?v=20261027d', import.meta.url), { type: 'module' }); } catch {}
+  try { worker = new Worker(new URL('./sdf-worker.js?v=20261027e', import.meta.url), { type: 'module' }); } catch {}
   const pending = new Map();
   if (worker) worker.onmessage = e => { const p = pending.get(e.data.id); if (p) { pending.delete(e.data.id); p(e.data); } };
   // Instant low-res hero field (~20 ms on the main thread) so the first frame never waits on the worker.
@@ -336,10 +337,59 @@ async function buildTextures() {
     const done = new Promise(res => {
       if (worker) { pending.set(i, res); worker.postMessage({ id: i, mask: r.mask, w: r.w, h: r.h }, [r.mask.buffer]); }
       else res({ half: toHalf(edtSigned(r.mask, r.w, r.h)), ms: 0 });
-    }).then(d => { sdfToTexture(c, d.half, r.w, r.h, r.aspect); T.marks['sdf-' + c.id] = Math.round(d.ms); });
+    // textGen > 0: a settings-panel restyle already replaced this field, so don't overwrite it.
+    }).then(d => { if (textGen) return; sdfToTexture(c, d.half, r.w, r.h, r.aspect); T.marks['sdf-' + c.id] = Math.round(d.ms); });
     return { c, done };
   });
   Promise.all(jobs.map(j => j.done)).then(() => { T.mark('allSDF'); worker?.terminate(); });
+}
+
+// ── Live text restyle (settings panel) ──
+// The lettering is a distance field rasterised from a canvas, so a font change means
+// re-drawing every cluster's words and re-running the distance transform. Fonts other than
+// the two vendored ones come from Google Fonts (CSP already allows fonts.googleapis.com /
+// fonts.gstatic.com) and are only fetched when picked on /next/.
+const TEXT = { font: 'Syne', weight: 800, italic: false, spacing: -0.03, lineHeight: 0.92, fill: 0.86 };
+const LOCAL_FONTS = ['Syne', 'Plus Jakarta Sans'];
+const SYSTEM_FONTS = ['Arial Black', 'Impact', 'Georgia', 'Times New Roman', 'Courier New'];
+const GOOGLE_FONTS = {
+  'Inter': 'wght@100..900', 'Space Grotesk': 'wght@300..700', 'Unbounded': 'wght@200..900',
+  'Montserrat': 'ital,wght@0,100..900;1,100..900', 'Archivo': 'wght@100..900', 'Archivo Black': '',
+  'Anton': '', 'Bebas Neue': '', 'Playfair Display': 'wght@400..900', 'DM Serif Display': '',
+  'Bungee': '', 'Orbitron': 'wght@400..900', 'Rubik': 'wght@300..900', 'Righteous': '',
+};
+const FONT_LIST = [...LOCAL_FONTS, ...Object.keys(GOOGLE_FONTS), ...SYSTEM_FONTS];
+function ensureFont(family) {
+  if (!(family in GOOGLE_FONTS) || document.querySelector(`link[data-font="${family}"]`)) return;
+  const l = document.createElement('link');
+  l.rel = 'stylesheet'; l.dataset.font = family;
+  const axes = GOOGLE_FONTS[family];
+  l.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family).replace(/%20/g, '+')}${axes ? ':' + axes : ''}&display=block`;
+  document.head.appendChild(l);
+  return new Promise(res => { l.onload = l.onerror = res; });
+}
+let textGen = 0, textTimer = 0;
+function rebuildText() {
+  clearTimeout(textTimer);
+  textTimer = setTimeout(rebuildTextNow, 120);       // coalesce a burst of control changes
+}
+async function rebuildTextNow() {
+  const gen = ++textGen;
+  const fam = `"${TEXT.font}"`, style = TEXT.italic ? 'italic' : '';
+  await ensureFont(TEXT.font);
+  try { await document.fonts.load(`${style} ${TEXT.weight} 200px ${fam}`); } catch {}
+  if (gen !== textGen) return;
+  let worker = null;
+  try { worker = new Worker(new URL('./sdf-worker.js?v=20261027e', import.meta.url), { type: 'module' }); } catch {}
+  for (const c of CLUSTERS.filter(c => c.lines)) {
+    const r = rasterText(c.lines, { w: c.canvas[0], h: c.canvas[1], font: fam, weight: TEXT.weight, style, fill: TEXT.fill, lineHeight: TEXT.lineHeight, spacing: TEXT.spacing });
+    const d = worker
+      ? await new Promise(res => { worker.onmessage = e => res(e.data); worker.postMessage({ id: 0, mask: r.mask, w: r.w, h: r.h }, [r.mask.buffer]); })
+      : { half: toHalf(edtSigned(r.mask, r.w, r.h)) };
+    if (gen !== textGen) { worker?.terminate(); return; }
+    sdfToTexture(c, d.half, r.w, r.h, r.aspect);
+  }
+  worker?.terminate();
 }
 
 function loadImage(src) {
@@ -393,7 +443,7 @@ async function init() {
     uBoundA: { value: new THREE.Vector4(0, 0, 0, 0) }, uBoundB: { value: new THREE.Vector4(0, 0, 0, 0) },
     uTexA: { value: CLUSTERS[0].tex }, uTextAPos: { value: new THREE.Vector3() }, uTextASize: { value: new THREE.Vector2(1, 1) }, uTextAOn: { value: 0 }, uTextAFade: { value: 0 },
     uTexB: { value: CLUSTERS[1].tex }, uTextBPos: { value: new THREE.Vector3() }, uTextBSize: { value: new THREE.Vector2(1, 1) }, uTextBOn: { value: 0 }, uTextBFade: { value: 0 },
-    uTextDepth: { value: 0.42 },
+    uTextDepth: { value: 0.42 }, uTextRound: { value: 0.012 },
     uSlab: { value: SLAB_X.map(x => new THREE.Vector4(CLUSTERS[2].x + x, CLUSTERS[2].y, CLUSTERS[2].z + 0.55, 0)) }, uSlabHalf: { value: SLAB_HALF }, uSlabOn: { value: 0 }, uSlabScale: { value: 1 }, uAtlas: { value: atlas },
     uIor: { value: 1.27 }, uAbsorb: { value: new THREE.Vector3(0.10, 0.17, 0.025) }, uDisp: { value: mobile ? 0 : 0.012 },
     uSteps: { value: 96 }, uISteps: { value: 96 },   // same on phones: fewer inner steps ran out before reaching the letters
@@ -450,8 +500,8 @@ async function init() {
   // Live settings panel: /next/ only (the staging copy), loaded on demand so the homepage
   // never fetches it. ?tune enables it on a localhost server rooted at next/.
   if (location.pathname.startsWith('/next') || (DEV && q.has('tune'))) {
-    import('./tune.js?v=20261027d').then(m => m.initTune({
-      THREE, uniforms, renderer, bloom, taa, plainPass, P, mobile,
+    import('./tune.js?v=20261027e').then(m => m.initTune({
+      THREE, uniforms, renderer, bloom, taa, plainPass, P, mobile, TEXT, FONT_LIST, rebuildText,
       dpr: devicePixelRatio || 1,
       getScale: () => scale,
       setScale: v => { scale = v; applySize(); },
@@ -868,9 +918,9 @@ function frame(now) {
   uniforms.uCoreBOn.value = cam.presB > 0.02 ? 1 : 0; uniforms.uCoreBHalf.value.copy(B.coreHalf).multiplyScalar(cam.presB);
   uniforms.uCoreB.value.copy(B.corePos).add(tmp.set(Math.cos(t * 0.33) * 0.25, Math.sin(t * 0.27) * 0.2, 0));
   uniforms.uTextAOn.value = A.tex ? 1 : 0;
-  if (A.tex) { uniforms.uTexA.value = A.tex; uniforms.uTextAPos.value.copy(A.center); uniforms.uTextASize.value.copy(A.texSize); }
+  if (A.tex) { uniforms.uTexA.value = A.tex; uniforms.uTextAPos.value.copy(A.center).z += P.textZ; uniforms.uTextASize.value.copy(A.texSize).multiplyScalar(P.textScale); }
   uniforms.uTextBOn.value = B.tex ? 1 : 0;
-  if (B.tex) { uniforms.uTexB.value = B.tex; uniforms.uTextBPos.value.copy(B.center); uniforms.uTextBSize.value.copy(B.texSize); }
+  if (B.tex) { uniforms.uTexB.value = B.tex; uniforms.uTextBPos.value.copy(B.center).z += P.textZ; uniforms.uTextBSize.value.copy(B.texSize).multiplyScalar(P.textScale); }
   uniforms.uSlabOn.value = active.includes(2) ? 1 : 0;
   active.forEach((k, ai) => {
     const c = CLUSTERS[k], pr = pres[ai];

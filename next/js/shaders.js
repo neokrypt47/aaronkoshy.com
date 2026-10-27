@@ -32,6 +32,7 @@ uniform vec4  uBoundA; uniform vec4 uBoundB;   // bounding spheres of the two ac
 uniform sampler2D uTexA; uniform vec3 uTextAPos; uniform vec2 uTextASize; uniform float uTextAOn; uniform float uTextAFade;
 uniform sampler2D uTexB; uniform vec3 uTextBPos; uniform vec2 uTextBSize; uniform float uTextBOn; uniform float uTextBFade;
 uniform float uTextDepth;
+uniform float uTextRound;                              // edge rounding of the extruded letters
 
 uniform vec4  uSlab[4];
 uniform vec3  uSlabHalf;
@@ -109,7 +110,7 @@ float sdText(sampler2D tex, vec3 p, vec3 pos, vec2 size, float fade) {
   vec2 q = abs(l.xy) - size * 0.5;
   v += length(max(q, 0.0));
   vec2 w = vec2(v, abs(l.z) - uTextDepth);
-  return min(max(w.x, w.y), 0.0) + length(max(w, 0.0)) - 0.012 + fade;  // tiny rounding only; keeps counters open
+  return min(max(w.x, w.y), 0.0) + length(max(w, 0.0)) - uTextRound + fade;  // small rounding keeps counters open
 }
 
 float sdSlab(vec3 p, vec3 c) {

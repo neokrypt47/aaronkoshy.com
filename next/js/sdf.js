@@ -38,17 +38,17 @@ function edt(grid, w, h) {
 }
 
 /** Rasterise `lines` centred on a w×h canvas; returns a Uint8Array mask of anti-aliased glyph coverage (0 outside … 255 inside). Main thread only (needs the page font). */
-export function rasterText(lines, { w = 1024, h = 512, font = 'Syne', weight = 800, fill = 0.86, lineHeight = 0.92, spacing = -0.03 } = {}) {
+export function rasterText(lines, { w = 1024, h = 512, font = 'Syne', weight = 800, style = '', fill = 0.86, lineHeight = 0.92, spacing = -0.03 } = {}) {
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
   const ctx = cv.getContext('2d', { willReadFrequently: true });
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
 
   // Pick the largest font size where every line fits horizontally and the block fits vertically.
   let fs = h / (lines.length * lineHeight) * fill;
-  ctx.font = `${weight} ${fs}px ${font}, sans-serif`;
+  ctx.font = `${style} ${weight} ${fs}px ${font}, sans-serif`;
   ctx.letterSpacing = `${spacing * fs}px`;
   const widest = Math.max(...lines.map(l => ctx.measureText(l).width));
-  if (widest > w * fill) { fs *= (w * fill) / widest; ctx.font = `${weight} ${fs}px ${font}, sans-serif`; ctx.letterSpacing = `${spacing * fs}px`; }
+  if (widest > w * fill) { fs *= (w * fill) / widest; ctx.font = `${style} ${weight} ${fs}px ${font}, sans-serif`; ctx.letterSpacing = `${spacing * fs}px`; }
 
   ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
   const lh = fs * lineHeight;

@@ -56,6 +56,11 @@ export function initTune(ctx) {
     folder.addColor({ c: proxy }, 'c').name(label).onChange(persist);
     reg.set(key, { get: () => [vec.x, vec.y, vec.z], set: a => { vec.set(a[0], a[1], a[2]); onSet(); }, def: [vec.x, vec.y, vec.z] });
   }
+  function choice(folder, key, label, options, get, set) {
+    const holder = { get v() { return get(); }, set v(x) { set(x); } };
+    folder.add(holder, 'v', options).name(label).onChange(persist);
+    reg.set(key, { get, set, def: get() });
+  }
   const uni = (folder, name, label, min, max, step, opts) =>
     num(folder, name, label, () => U[name].value, v => { U[name].value = v; }, min, max, step, opts);
   const comp = (folder, name, axis, label, min, max, step) =>
@@ -111,7 +116,17 @@ export function initTune(ctx) {
 
   // ── Text ──
   const fText = gui.addFolder('Text');
-  uni(fText, 'uTextDepth', 'Letter thickness', 0.05, 1.2, 0.01);
+  const T = ctx.TEXT, restyle = ctx.rebuildText;
+  choice(fText, 'text.font', 'Font', ctx.FONT_LIST, () => T.font, v => { T.font = v; restyle(); });
+  num(fText, 'text.weight', 'Weight', () => T.weight, v => { T.weight = v; restyle(); }, 100, 900, 100, { heavy: true });
+  bool(fText, 'text.italic', 'Italic', () => T.italic, v => { T.italic = v; restyle(); });
+  num(fText, 'text.spacing', 'Letter spacing', () => T.spacing, v => { T.spacing = v; restyle(); }, -0.15, 0.4, 0.005, { heavy: true });
+  num(fText, 'text.lineHeight', 'Line spacing', () => T.lineHeight, v => { T.lineHeight = v; restyle(); }, 0.6, 1.5, 0.01, { heavy: true });
+  num(fText, 'text.fill', 'Fill of text box', () => T.fill, v => { T.fill = v; restyle(); }, 0.4, 1, 0.01, { heavy: true });
+  param(fText, 'textScale', 'Letter size', 0.3, 2, 0.01);
+  uni(fText, 'uTextDepth', 'Extrusion depth', 0.02, 1.5, 0.01);
+  uni(fText, 'uTextRound', 'Extrusion edge rounding', 0, 0.2, 0.001);
+  param(fText, 'textZ', 'Position in glass (front/back)', -1.5, 1.5, 0.01);
   bool(fText, 'uBorderOn', '3D border', () => U.uBorderOn.value > 0.5, v => { U.uBorderOn.value = v ? 1 : 0; });
   color(fText, 'uBorderColor', 'Border colour', U.uBorderColor.value);
   uni(fText, 'uBorderWidth', 'Border width', 0, 0.5, 0.005);
