@@ -4,9 +4,9 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261021d';
-import { TAAPass } from './taa.js?v=20261021d';
-import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261021d';
+import { VERT, FRAG, FRAG_FAST } from './shaders.js?v=20261027';
+import { TAAPass } from './taa.js?v=20261027';
+import { rasterText, edtSigned, toHalf } from './sdf.js?v=20261027';
 
 // ── Preloader ──
 // Driven by the same marks ?debug reports, so it tracks real work rather than a timer.
@@ -281,10 +281,13 @@ let renderer, composer, bloom, material, uniforms, scene, cam, taa, quad;
 // boundary once ready. See buildFrag()/FRAG_FAST in shaders.js for why a separate cheap
 // GLSL variant — not just lower runtime uSteps/uISteps — is what actually compiles fast.
 let fullMaterial = null, fullReady = false, fullCompileStarted = false;
-const DPR = Math.min(devicePixelRatio || 1, 2);
-// Desktop draws at native DPR: at 0.85 the browser stretched the canvas back up to the screen,
-// which softened every edge on top of TAA's half-res march.
-let scale = FORCE_SCALE ?? (mobile ? DPR * 0.55 : DPR);   // drawing-buffer px per CSS px
+// Full resolution everywhere, all the time: native DPR (uncapped), the march at full res
+// (TAA only antialiases), no adaptive scaling and no idle/interactive switching. Load and
+// GPU cost are deliberately ignored for now; ?fullres=0 (localhost only) restores the
+// adaptive path for comparison.
+const FULL_RES = q.get('fullres') !== '0';
+const DPR = FULL_RES ? (devicePixelRatio || 1) : Math.min(devicePixelRatio || 1, 2);
+let scale = FORCE_SCALE ?? (FULL_RES || !mobile ? DPR : DPR * 0.55);   // drawing-buffer px per CSS px
 const targetScale = scale;
 
 function hasWebGL2() { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } }
@@ -307,15 +310,16 @@ async function buildTextures() {
   try { await document.fonts.load('800 200px Syne'); } catch {}
   T.mark('fonts');
   let worker = null;
-  try { worker = new Worker(new URL('./sdf-worker.js?v=20261021d', import.meta.url), { type: 'module' }); } catch {}
+  try { worker = new Worker(new URL('./sdf-worker.js?v=20261027', import.meta.url), { type: 'module' }); } catch {}
   const pending = new Map();
   if (worker) worker.onmessage = e => { const p = pending.get(e.data.id); if (p) { pending.delete(e.data.id); p(e.data); } };
   // Instant low-res hero field (~20 ms on the main thread) so the first frame never waits on the worker.
   const hero = CLUSTERS[0];
-  const lo = rasterText(hero.lines, { w: 512, h: 256 });
+  // Under FULL_RES the hero gets its full-size field up front instead of the placeholder.
+  const lo = FULL_RES ? rasterText(hero.lines, { w: hero.canvas[0], h: hero.canvas[1] }) : rasterText(hero.lines, { w: 512, h: 256 });
   sdfToTexture(hero, toHalf(edtSigned(lo.mask, lo.w, lo.h)), lo.w, lo.h, lo.aspect);
   T.mark('heroLoRes');
-  const jobs = CLUSTERS.filter(c => c.lines).map((c, i) => {
+  const jobs = CLUSTERS.filter(c => c.lines && !(FULL_RES && c === hero)).map((c, i) => {
     const r = rasterText(c.lines, { w: c.canvas[0], h: c.canvas[1] });
     const done = new Promise(res => {
       if (worker) { pending.set(i, res); worker.postMessage({ id: i, mask: r.mask, w: r.w, h: r.h }, [r.mask.buffer]); }
@@ -409,7 +413,7 @@ async function init() {
   composer = new EffectComposer(renderer);
   // TAAPass renders the scene itself, at half linear resolution, and resolves to full —
   // so it stands in for RenderPass rather than following it.
-  if (TAA) { taa = new TAAPass(scene, cam, uniforms, 0.5); composer.addPass(taa); }
+  if (TAA) { taa = new TAAPass(scene, cam, uniforms, FULL_RES ? 1 : 0.5); composer.addPass(taa); }
   else composer.addPass(new RenderPass(scene, cam));
   bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.3, 0.3, 1.1);
   composer.addPass(bloom);
@@ -635,7 +639,7 @@ let idleRes = false, activeScale = scale, slowIdle = 0;
 if (DEBUG) {
   window.__gl = () => ({ renderer, composer, scene, cam, uniforms, material, taa, quad, fullMaterial, fullReady });
   window.__perf = () => ({
-    scale, targetScale, activeScale, idleRes, marchRatio: taa?.ratio, floor: SCALE_FLOOR, frameMs, msPerPx, adapts,
+    fullRes: FULL_RES, scale, targetScale, activeScale, idleRes, marchRatio: taa?.ratio, floor: SCALE_FLOOR, frameMs, msPerPx, adapts,
     passes: composer?.passes.map(p => p.constructor.name),
     canvas: renderer && [renderer.domElement.width, renderer.domElement.height],
   });
@@ -715,7 +719,9 @@ function frame(now) {
   if (!interacting && !FORCE_SCALE) {
     if (now - lastRender < 31) { requestAnimationFrame(frame); return; }
     renderedRun = 0;
-    if (!idleRes) {
+    if (FULL_RES) {
+      // resolution never changes
+    } else if (!idleRes) {
       idleRes = true; activeScale = scale; slowIdle = 0;
       const full = !!taa && idleFullMarch();
       taa?.setRatio(full ? 1 : 0.5);
@@ -741,7 +747,7 @@ function frame(now) {
     // device's real cost and needing several more (individually slow) frames to catch up.
     if (frames > 5 && renderedRun > 0) frameMs = lerp(frameMs, realMs, adapts === 0 ? 0.6 : 0.15);   // GPU-bound cost shows up as rAF interval
     renderedRun++;
-    if (!FORCE_SCALE && now - lastAdapt > ADAPT_EVERY && renderedRun > 3) { adaptScale(); lastAdapt = now; }
+    if (!FULL_RES && !FORCE_SCALE && now - lastAdapt > ADAPT_EVERY && renderedRun > 3) { adaptScale(); lastAdapt = now; }
   }
   lastRender = now;
 
