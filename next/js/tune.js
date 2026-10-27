@@ -22,7 +22,7 @@ export function initTune(ctx) {
   gui.close();
 
   // ── registry: one entry per control, so save / load / reset / export work off real values
-  // (lil-gui's own save() rounds colours to 8-bit hex) ──
+  // (lil-gui's own save() rounds colors to 8-bit hex) ──
   const reg = new Map();
   let saveTimer = 0;
   const persist = () => {
@@ -46,7 +46,7 @@ export function initTune(ctx) {
     folder.add(holder, 'v').name(label).onChange(persist);
     reg.set(key, { get, set, def: get() });
   }
-  // A colour bound to a THREE.Vector3 (the shader's raw linear values); onSet runs after writes.
+  // A color bound to a THREE.Vector3 (the shader's raw linear values); onSet runs after writes.
   function color(folder, key, label, vec, onSet = () => {}) {
     const proxy = {
       get r() { return vec.x; }, set r(a) { vec.x = a; onSet(); },
@@ -68,14 +68,14 @@ export function initTune(ctx) {
   const param = (folder, key, label, min, max, step, after = () => {}) =>
     num(folder, `P.${key}`, label, () => P[key], v => { P[key] = v; after(); }, min, max, step);
 
-  // Glass glow is stored as colour x strength so the colour picker shows a readable colour.
+  // Glass glow is stored as color x strength so the color picker shows a readable color.
   const GLOW_K0 = 0.35;
   const glowBase = U.uGlowColor.value.clone().divideScalar(GLOW_K0);
   let glowK = GLOW_K0;
   const applyGlow = () => U.uGlowColor.value.copy(glowBase).multiplyScalar(glowK);
 
-  // ── Colours ──
-  const fCol = gui.addFolder('Colours');
+  // ── Colors ──
+  const fCol = gui.addFolder('Colors');
   color(fCol, 'uTextColor', 'Text', U.uTextColor.value);
   color(fCol, 'uSkyLow', 'Sky (low)', U.uSkyLow.value);
   color(fCol, 'uSkyHigh', 'Sky (high)', U.uSkyHigh.value);
@@ -128,10 +128,10 @@ export function initTune(ctx) {
   uni(fText, 'uTextRound', 'Extrusion edge rounding', 0, 0.2, 0.001);
   param(fText, 'textZ', 'Position in glass (front/back)', -1.5, 1.5, 0.01);
   bool(fText, 'uBorderOn', '3D border', () => U.uBorderOn.value > 0.5, v => { U.uBorderOn.value = v ? 1 : 0; });
-  color(fText, 'uBorderColor', 'Border colour', U.uBorderColor.value);
+  color(fText, 'uBorderColor', 'Border color', U.uBorderColor.value);
   uni(fText, 'uBorderWidth', 'Border width', 0, 0.5, 0.005);
   uni(fText, 'uBorderSoft', 'Border edge softness', 0, 0.2, 0.005);
-  uni(fText, 'uBorderSides', 'Colour the sides', 0, 1, 0.01);
+  uni(fText, 'uBorderSides', 'Color the sides', 0, 1, 0.01);
   uni(fText, 'uBorderBevel', 'Bevel', 0, 3, 0.01);
   uni(fText, 'uBorderBright', 'Border brightness', 0, 3, 0.01);
 
@@ -166,7 +166,7 @@ export function initTune(ctx) {
 
   // ── Camera ──
   const fCam = gui.addFolder('Camera');
-  bool(fCam, 'P.heroBeside', 'Hero: glass beside copy (off = centred)', () => P.heroBeside, v => { P.heroBeside = v; ctx.markFraming(); });
+  bool(fCam, 'P.heroBeside', 'Hero: glass beside copy (off = centered)', () => P.heroBeside, v => { P.heroBeside = v; ctx.markFraming(); });
   param(fCam, 'fov', 'Field of view (deg)', 10, 70, 0.5, ctx.markFraming);
   param(fCam, 'camDist', 'Distance', 5, 40, 0.1, ctx.markFraming);
   param(fCam, 'maxPullBack', 'Max pull-back (x distance)', 1, 4, 0.05, ctx.markFraming);
@@ -233,7 +233,7 @@ export function initTune(ctx) {
   gui.add(actions, 'reset').name('Reset all to defaults');
   const statusCtl = gui.add(status, 'text').name('Status').disable();
 
-  // Folders start collapsed except Colours, so the open panel stays short.
+  // Folders start collapsed except Colors, so the open panel stays short.
   gui.folders.forEach(f => { if (f !== fCol) f.close(); });
 
   // ── Restore saved values (after defaults were captured above) ──
